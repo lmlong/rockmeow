@@ -1,0 +1,64 @@
+{
+  "providers": {
+    "glm": {
+      "apiKey": "bf780a4d27454909ad02ba7c9a0e6d19.LsBBLU4U3bCCdvqm",
+      "apiBase": "https://open.bigmodel.cn/api/anthropic",
+      "model": "glm-5",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    },
+
+    "minimax": {
+      "apiKey": "sk-cp-mpX09dQEHgHHOva2vEZ89_c-RUNXA4CrmTFViEMUD-f00iTziDBdEtPvEIqHqD1o_LHQFtfMp-EYIf25nYv-wBM34G0XIw1OeSMev1QVUjOR7__GI6lQXv4",
+      "groupId": "",
+      "apiBase": "https://api.minimaxi.com/anthropic",
+      "model": "MiniMax-M2.1",
+      "temperature": 0.7,
+      "maxTokens": 4096
+    }
+  },
+
+  "agents": {
+    "defaults": {
+      "model": "qwen3-max-2026-01-23",
+      "apiKey": "sk-791d6c7cc3094af99290577b709b47e6",
+      "apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "systemPrompt": "You are LingGuard, a helpful AI assistant. You can use tools to help users with various tasks.",
+      "maxHistoryMessages": 50,
+      "maxToolCalls": 10
+    }
+  },
+
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "appId": "cli_a904272b23b89cb3",
+      "appSecret": "9XxL2DnKzj82WTdPaKmzPj84btdqABya",
+      "encryptKey": "",
+      "verificationToken": "",
+      "allowFrom": []
+    }
+  },
+
+  "tools": {
+    "restrictToWorkspace": false,
+    "workspace": "~/.lingguard/workspace"
+  },
+
+  "storage": {
+    "type": "postgres",
+    "host": "localhost",
+    "port": 5432,
+    "database": "lingguard",
+    "username": "postgres",
+    "password": "postgres",
+    "sslmode": "disable",
+    "vectorDbUrl": "http://localhost:6333"
+  },
+
+  "logging": {
+    "level": "info",
+    "format": "text",
+    "output": "~/.lingguard/logs/lingguard.log"
+  }
+}
