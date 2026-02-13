@@ -1784,7 +1784,7 @@ docker run -v ~/.lingguard:/root/.lingguard lingguard gateway
 | CLI框架 | Cobra | 成熟的CLI框架 |
 | 配置管理 | Viper | 支持多种配置格式 |
 | 日志 | Zap | 高性能结构化日志 |
-| HTTP客户端 | Resty | 简洁的HTTP客户端 |
+| HTTP客户端 | go-resty | 简洁的HTTP客户端 |
 | WebSocket | gorilla/websocket | 飞书长连接 |
 | 数据库 | PostgreSQL | 生产级关系型数据库 |
 | 向量数据库 | Qdrant | 高性能语义搜索 |
