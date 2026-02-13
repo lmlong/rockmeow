@@ -35,4 +35,5 @@ type ProviderConfig struct {
 	Model       string
 	Temperature float64
 	MaxTokens   int
+	Timeout     int // 请求超时时间（秒）
 }

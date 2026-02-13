@@ -61,6 +61,7 @@ func (r *Registry) InitFromConfig(cfg *config.Config) error {
 			Model:       pc.Model,
 			Temperature: pc.Temperature,
 			MaxTokens:   pc.MaxTokens,
+			Timeout:     pc.Timeout,
 		}
 
 		// 根据 API 端点自动选择 Provider 类型

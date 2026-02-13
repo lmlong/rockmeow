@@ -21,8 +21,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("Expected MaxToolIterations=20, got %d", cfg.Agents.MaxToolIterations)
 	}
 
-	if cfg.Agents.Model != "gpt-4o" {
-		t.Errorf("Expected Model=gpt-4o, got %s", cfg.Agents.Model)
+	if cfg.Agents.Provider != "openai" {
+		t.Errorf("Expected Provider=openai, got %s", cfg.Agents.Provider)
 	}
 
 	if cfg.Storage.Type != "sqlite" {
@@ -47,14 +47,15 @@ func TestConfigSaveAndLoad(t *testing.T) {
 	// 创建测试配置
 	cfg := DefaultConfig()
 	cfg.Providers["test"] = ProviderConfig{
-		APIKey:  "test-key",
-		APIBase: "https://api.test.com/v1",
-		Model:   "test-model",
+		APIKey:      "test-key",
+		APIBase:     "https://api.test.com/v1",
+		Model:       "test-model",
+		Temperature: 0.7,
+		MaxTokens:   4096,
 	}
-	cfg.Agents.Model = "test"
+	cfg.Agents.Provider = "test"
 	cfg.Agents.SystemPrompt = "Test prompt"
 	cfg.Agents.Workspace = "/test/workspace"
-	cfg.Agents.MaxTokens = 4096
 
 	// 保存配置
 	err = cfg.Save(configPath)
@@ -73,8 +74,8 @@ func TestConfigSaveAndLoad(t *testing.T) {
 		t.Errorf("Expected APIKey=test-key, got %s", loadedCfg.Providers["test"].APIKey)
 	}
 
-	if loadedCfg.Agents.Model != "test" {
-		t.Errorf("Expected Model=test, got %s", loadedCfg.Agents.Model)
+	if loadedCfg.Agents.Provider != "test" {
+		t.Errorf("Expected Provider=test, got %s", loadedCfg.Agents.Provider)
 	}
 
 	if loadedCfg.Agents.SystemPrompt != "Test prompt" {
@@ -83,10 +84,6 @@ func TestConfigSaveAndLoad(t *testing.T) {
 
 	if loadedCfg.Agents.Workspace != "/test/workspace" {
 		t.Errorf("Expected Workspace='/test/workspace', got %s", loadedCfg.Agents.Workspace)
-	}
-
-	if loadedCfg.Agents.MaxTokens != 4096 {
-		t.Errorf("Expected MaxTokens=4096, got %d", loadedCfg.Agents.MaxTokens)
 	}
 }
 

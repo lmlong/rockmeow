@@ -5,14 +5,16 @@
       "apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "model": "qwen3-max-2026-01-23",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
     "glm": {
       "apiKey": "aa1d0dc2e27c4eaa80a9772536d2031c.BGqk7a4NgHcCPxXR",
       "apiBase": "https://open.bigmodel.cn/api/anthropic",
       "model": "glm-5",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
     "minimax": {
       "apiKey": "sk-cp-mpX09dQEHgHHOva2vEZ89_c-RUNXA4CrmTFViEMUD-f00iTziDBdEtPvEIqHqD1o_LHQFtfMp-EYIf25nYv-wBM34G0XIw1OeSMev1QVUjOR7__GI6lQXv4",
@@ -20,29 +22,30 @@
       "apiBase": "https://api.minimaxi.com/anthropic",
       "model": "MiniMax-M2.5",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
     "moonshot": {
       "apiKey": "sk-xxx",
       "apiBase": "https://api.moonshot.cn/v1",
       "model": "moonshot-v1-128k",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
     "deepseek": {
       "apiKey": "sk-xxx",
       "apiBase": "https://api.deepseek.com/v1",
       "model": "deepseek-chat",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     }
   },
 
   "agents": {
     "workspace": "~/.lingguard/workspace",
-    "model": "glm",
-    "maxTokens": 8192,
-    "temperature": 0.7,
+    "provider": "glm",
     "maxToolIterations": 20,
     "memoryWindow": 50,
     "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。"

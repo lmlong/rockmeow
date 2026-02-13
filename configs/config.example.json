@@ -8,7 +8,8 @@
       "apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "model": "qwen3-max-2026-01-23",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "openrouter": {
@@ -17,7 +18,8 @@
       "apiBase": "https://openrouter.ai/api/v1",
       "model": "anthropic/claude-opus-4",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "anthropic": {
@@ -25,7 +27,8 @@
       "apiKey": "sk-ant-xxx",
       "model": "claude-opus-4",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "openai": {
@@ -33,7 +36,8 @@
       "apiKey": "sk-xxx",
       "model": "gpt-4o",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "deepseek": {
@@ -42,7 +46,8 @@
       "apiBase": "https://api.deepseek.com/v1",
       "model": "deepseek-chat",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "moonshot": {
@@ -51,7 +56,8 @@
       "apiBase": "https://api.moonshot.cn/v1",
       "model": "moonshot-v1-128k",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "groq": {
@@ -59,7 +65,8 @@
       "apiKey": "gsk_xxx",
       "model": "llama-3.3-70b-versatile",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "gemini": {
@@ -67,7 +74,8 @@
       "apiKey": "AIza-xxx",
       "model": "gemini-2.0-flash-exp",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "vllm": {
@@ -76,7 +84,8 @@
       "apiBase": "http://localhost:8000/v1",
       "model": "meta-llama/Llama-3.1-8B-Instruct",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "glm": {
@@ -85,7 +94,8 @@
       "apiBase": "https://open.bigmodel.cn/api/anthropic",
       "model": "glm-4-plus",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     },
 
     "minimax": {
@@ -95,16 +105,15 @@
       "apiBase": "https://api.minimaxi.com/anthropic",
       "model": "MiniMax-M2.5",
       "temperature": 0.7,
-      "maxTokens": 4096
+      "maxTokens": 4096,
+      "timeout": 60
     }
   },
 
   "agents": {
     "_comment": "==================== Agent 代理配置 ====================",
     "workspace": "~/.lingguard/workspace",
-    "model": "glm",
-    "maxTokens": 8192,
-    "temperature": 0.7,
+    "provider": "glm",
     "maxToolIterations": 20,
     "memoryWindow": 50,
     "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。"

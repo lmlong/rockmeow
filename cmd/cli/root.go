@@ -118,7 +118,7 @@ func runStatus() {
 
 	// 显示 Agent 信息
 	fmt.Println("\nAgent:")
-	fmt.Printf("  Model: %s\n", cfg.Agents.Model)
+	fmt.Printf("  Provider: %s\n", cfg.Agents.Provider)
 	fmt.Printf("  Workspace: %s\n", cfg.Agents.Workspace)
 	fmt.Printf("  Max Iterations: %d\n", cfg.Agents.MaxToolIterations)
 	fmt.Printf("  Memory Window: %d\n", cfg.Agents.MemoryWindow)

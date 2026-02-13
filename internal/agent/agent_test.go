@@ -36,7 +36,7 @@ func (m *MockProvider) Stream(ctx context.Context, req *llm.Request) (<-chan llm
 
 func TestNewAgent(t *testing.T) {
 	cfg := &config.AgentsConfig{
-		Model:             "mock",
+		Provider:          "mock",
 		SystemPrompt:      "You are a test assistant",
 		MemoryWindow:      10,
 		MaxToolIterations: 5,
@@ -51,13 +51,13 @@ func TestNewAgent(t *testing.T) {
 		t.Fatal("NewAgent returned nil")
 	}
 
-	if agent.config.Model != "mock" {
-		t.Errorf("Expected Model=mock, got %s", agent.config.Model)
+	if agent.config.Provider != "mock" {
+		t.Errorf("Expected Provider=mock, got %s", agent.config.Provider)
 	}
 }
 
 func TestAgentRegisterTool(t *testing.T) {
-	cfg := &config.AgentsConfig{Model: "mock"}
+	cfg := &config.AgentsConfig{Provider: "mock"}
 	mockProvider := &MockProvider{}
 
 	agent := NewAgent(cfg, mockProvider)
@@ -74,7 +74,7 @@ func TestAgentRegisterTool(t *testing.T) {
 
 func TestAgentProcessMessage(t *testing.T) {
 	cfg := &config.AgentsConfig{
-		Model:             "mock",
+		Provider:          "mock",
 		SystemPrompt:      "You are helpful",
 		MemoryWindow:      10,
 		MaxToolIterations: 5,
@@ -123,7 +123,7 @@ func TestAgentProcessMessage(t *testing.T) {
 
 func TestAgentToolExecution(t *testing.T) {
 	cfg := &config.AgentsConfig{
-		Model:             "mock",
+		Provider:          "mock",
 		SystemPrompt:      "You are helpful",
 		MemoryWindow:      10,
 		MaxToolIterations: 5,

@@ -38,12 +38,18 @@ func NewAnthropicProvider(name string, cfg *ProviderConfig) *AnthropicProvider {
 		model = "claude-3-5-sonnet-20241022"
 	}
 
+	// 设置超时，默认 60 秒
+	timeout := time.Duration(cfg.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+
 	return &AnthropicProvider{
 		name:    name,
 		apiKey:  cfg.APIKey,
 		apiBase: apiBase,
 		model:   model,
-		client:  resty.New(),
+		client:  resty.New().SetTimeout(timeout),
 		supports: struct {
 			tools  bool
 			vision bool

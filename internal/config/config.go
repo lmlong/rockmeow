@@ -25,17 +25,17 @@ type ProviderConfig struct {
 	Temperature float64 `json:"temperature,omitempty"`
 	MaxTokens   int     `json:"maxTokens,omitempty"`
 	GroupID     string  `json:"groupId,omitempty"`
+	Timeout     int     `json:"timeout,omitempty"` // 请求超时时间（秒），默认 60
 }
 
 // AgentsConfig 代理配置
 type AgentsConfig struct {
-	Workspace         string  `json:"workspace"`
-	Model             string  `json:"model"`             // 默认模型/Provider名称
-	MaxTokens         int     `json:"maxTokens"`         // 最大输出 tokens
-	Temperature       float64 `json:"temperature"`       // 温度参数
-	MaxToolIterations int     `json:"maxToolIterations"` // 最大工具迭代次数
-	MemoryWindow      int     `json:"memoryWindow"`      // 历史消息窗口大小
-	SystemPrompt      string  `json:"systemPrompt"`
+	Workspace         string `json:"workspace"`
+	Provider          string `json:"provider"`          // 使用的 Provider 名称
+	MaxToolIterations int    `json:"maxToolIterations"` // 最大工具迭代次数
+	MemoryWindow      int    `json:"memoryWindow"`      // 历史消息窗口大小
+	SystemPrompt      string `json:"systemPrompt"`
+	// 注：Temperature 和 MaxTokens 从 Provider 配置中获取，避免重复
 }
 
 // ChannelsConfig 渠道配置
@@ -85,9 +85,7 @@ func DefaultConfig() *Config {
 		Providers: make(map[string]ProviderConfig),
 		Agents: AgentsConfig{
 			Workspace:         "~/.lingguard/workspace",
-			Model:             "gpt-4o",
-			MaxTokens:         8192,
-			Temperature:       0.7,
+			Provider:          "openai",
 			MaxToolIterations: 20,
 			MemoryWindow:      50,
 			SystemPrompt:      "You are LingGuard, a helpful AI assistant.",

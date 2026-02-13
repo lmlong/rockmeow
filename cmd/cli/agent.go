@@ -60,19 +60,15 @@ func createAgent(cfg *config.Config) (*agent.Agent, error) {
 		return nil, err
 	}
 
-	// 2. 通过 model 配置自动匹配 Provider
-	model := cfg.Agents.Model
-	provider, ok := registry.MatchProvider(model)
+	// 2. 通过 provider 配置获取 Provider
+	providerName := cfg.Agents.Provider
+	provider, ok := registry.MatchProvider(providerName)
 	if !ok {
-		return nil, fmt.Errorf("provider not found for model: %s", model)
+		return nil, fmt.Errorf("provider not found: %s", providerName)
 	}
 
-	// 3. 设置默认 Provider（如果配置的是 provider 名称）
-	if strings.Contains(model, "/") {
-		registry.SetDefault(strings.SplitN(model, "/", 2)[0])
-	} else {
-		registry.SetDefault(model)
-	}
+	// 3. 设置默认 Provider
+	registry.SetDefault(providerName)
 
 	// 4. 创建 Agent
 	ag := agent.NewAgent(&cfg.Agents, provider)

@@ -33,12 +33,18 @@ func NewOpenAIProvider(name string, cfg *ProviderConfig) *OpenAIProvider {
 		apiBase = "https://api.openai.com/v1"
 	}
 
+	// 设置超时，默认 60 秒
+	timeout := time.Duration(cfg.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+
 	return &OpenAIProvider{
 		name:    name,
 		model:   cfg.Model,
 		apiKey:  cfg.APIKey,
 		apiBase: apiBase,
-		client:  resty.New(),
+		client:  resty.New().SetTimeout(timeout),
 		supports: struct {
 			tools  bool
 			vision bool
