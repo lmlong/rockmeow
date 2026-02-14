@@ -78,6 +78,11 @@ func (a *Agent) SubagentManager() *subagent.SubagentManager {
 	return a.subagentMgr
 }
 
+// ToolRegistry 返回工具注册表
+func (a *Agent) ToolRegistry() *tools.Registry {
+	return a.toolRegistry
+}
+
 // GetSkillInstruction 获取技能指令
 func (a *Agent) GetSkillInstruction(name string) (string, error) {
 	if a.skillsMgr == nil {
