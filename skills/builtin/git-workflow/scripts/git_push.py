@@ -2,7 +2,6 @@
 """
 Git Push 脚本
 用途：推送代码到远程仓库（带安全检查）
-代码路径：/home/etsme/code
 """
 
 import subprocess
@@ -10,14 +9,13 @@ import sys
 import os
 
 
-# 代码路径（支持环境变量覆盖）
-CODE_PATH = os.getenv('CODE_PATH', '/home/etsme/code')
+# 代码路径（优先使用环境变量，否则使用当前目录）
+CODE_PATH = os.getenv('CODE_PATH', os.getcwd())
 
-# 保护分支
-PROTECTED_BRANCH = "master"
+# 保护分支列表
+PROTECTED_BRANCHES = os.getenv('PROTECTED_BRANCHES', 'main,master').split(',')
 
 
-# 颜色输出
 class Colors:
     RED = '\033[0;31m'
     GREEN = '\033[0;32m'
@@ -32,6 +30,31 @@ def run_command_quiet(cmd: list, cwd: str = None) -> subprocess.CompletedProcess
     except subprocess.CalledProcessError:
         print(f"{Colors.RED}命令执行失败: {' '.join(cmd)}{Colors.NC}")
         sys.exit(1)
+
+
+def get_default_branch() -> str:
+    """自动检测默认分支"""
+    try:
+        result = subprocess.run(
+            ['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'],
+            capture_output=True, text=True, cwd=CODE_PATH
+        )
+        if result.returncode == 0:
+            return result.stdout.strip().split('/')[-1]
+    except Exception:
+        pass
+
+    for branch in ['main', 'master', 'develop']:
+        try:
+            subprocess.run(
+                ['git', 'rev-parse', f'origin/{branch}'],
+                capture_output=True, check=True, cwd=CODE_PATH
+            )
+            return branch
+        except subprocess.CalledProcessError:
+            continue
+
+    return 'main'
 
 
 def print_success(msg: str) -> None:
@@ -51,23 +74,23 @@ def print_info(msg: str) -> None:
 
 
 def main() -> None:
-    # 检测当前目录或 CODE_PATH 是否是 Git 仓库
+    # 检测仓库目录
     repo_dir = None
     try:
-        # 先尝试当前目录
-        result = subprocess.run(['git', 'rev-parse', '--git-dir'], capture_output=True, text=True)
+        result = subprocess.run(['git', 'rev-parse', '--git-dir'],
+                               capture_output=True, text=True)
         if result.returncode == 0:
             repo_dir = os.getcwd()
-    except:
+    except Exception:
         pass
 
-    # 如果当前目录不是仓库，尝试 CODE_PATH
     if not repo_dir:
         try:
-            result = subprocess.run(['git', 'rev-parse', '--git-dir'], capture_output=True, text=True, cwd=CODE_PATH)
+            result = subprocess.run(['git', 'rev-parse', '--git-dir'],
+                                   capture_output=True, text=True, cwd=CODE_PATH)
             if result.returncode == 0:
                 repo_dir = CODE_PATH
-        except:
+        except Exception:
             pass
 
     if not repo_dir:
@@ -80,8 +103,12 @@ def main() -> None:
     result = run_command_quiet(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_dir)
     current_branch = result.stdout.strip()
 
+    # 动态检测保护分支
+    default_branch = get_default_branch()
+    protected = PROTECTED_BRANCHES + [default_branch]
+
     # 检查是否为保护分支
-    if current_branch == PROTECTED_BRANCH:
+    if current_branch in protected:
         print_error(f"禁止推送到保护分支 '{current_branch}'")
         print_warning("请切换到 ai-*、feature/* 或其他开发分支")
         sys.exit(1)
@@ -99,10 +126,10 @@ def main() -> None:
 
     # 推送
     print_info(f"正在推送到远程仓库: {current_branch}")
-    try:
-        subprocess.run(['git', 'push', '-u', 'origin', current_branch], check=False, cwd=repo_dir)
+    result = subprocess.run(['git', 'push', '-u', 'origin', current_branch], cwd=repo_dir)
+    if result.returncode == 0:
         print_success("推送成功")
-    except subprocess.CalledProcessError:
+    else:
         print_error("推送失败")
         sys.exit(1)
 
