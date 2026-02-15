@@ -57,6 +57,10 @@ func runGateway() error {
 	// 创建基础 AgentAdapter
 	baseAdapter := channels.NewAgentAdapter(ag)
 
+	// 创建 MessageTool（用于 Agent 主动发送消息）
+	messageTool := tools.NewMessageTool(mgr)
+	ag.RegisterTool(messageTool)
+
 	// 启动定时任务服务（先启动，这样 ContextAdapter 才能正确包装）
 	var cronService *cron.Service
 	var cronWrapper *tools.CronServiceWrapper
@@ -80,12 +84,12 @@ func runGateway() error {
 		ag.RegisterCronTool(cronWrapper)
 	}
 
-	// 使用 ContextAdapter 包装 AgentAdapter（如果 cron 启用）
-	var adapter channels.MessageHandler = baseAdapter
-	if cronWrapper != nil {
-		adapter = channels.NewContextAdapter(baseAdapter, cronWrapper)
-		logger.Info("ContextAdapter enabled for cron delivery")
-	}
+	// 使用 ContextAdapter 包装 AgentAdapter
+	// 始终使用 ContextAdapter 以支持 MessageTool 上下文
+	contextAdapter := channels.NewContextAdapter(baseAdapter, cronWrapper)
+	contextAdapter.SetMessageTool(messageTool)
+	var adapter channels.MessageHandler = contextAdapter
+	logger.Info("ContextAdapter enabled for message and cron delivery")
 
 	// 注册飞书渠道
 	if cfg.Channels.Feishu != nil && cfg.Channels.Feishu.Enabled {

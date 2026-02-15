@@ -8,11 +8,17 @@ import (
 	"github.com/lingguard/pkg/stream"
 )
 
+// ContextSetter 定义设置上下文的接口
+type ContextSetter interface {
+	SetContext(channel, chatID string)
+}
+
 // ContextAdapter 带渠道上下文的 Agent 适配器
-// 在处理消息前设置 cron 工具的渠道上下文
+// 在处理消息前设置工具的渠道上下文
 type ContextAdapter struct {
 	handler     MessageHandler
 	cronWrapper *tools.CronServiceWrapper
+	messageTool ContextSetter
 }
 
 // NewContextAdapter 创建上下文适配器
@@ -23,19 +29,23 @@ func NewContextAdapter(handler MessageHandler, cronWrapper *tools.CronServiceWra
 	}
 }
 
+// SetMessageTool 设置消息工具
+func (a *ContextAdapter) SetMessageTool(tool ContextSetter) {
+	a.messageTool = tool
+}
+
 // HandleMessage 实现 MessageHandler 接口
 func (a *ContextAdapter) HandleMessage(ctx context.Context, msg *Message) (string, error) {
-	logger.Info("ContextAdapter.HandleMessage called: Channel=%s, UserID=%s", msg.Channel, msg.UserID)
+	logger.Debug("ContextAdapter.HandleMessage: Channel=%s, UserID=%s", msg.Channel, msg.UserID)
+
 	// 设置 cron 工具的渠道上下文
-	if a.cronWrapper != nil {
-		if msg.Channel != "" {
-			a.cronWrapper.SetChannelContext(msg.Channel, msg.UserID)
-			logger.Info("ContextAdapter: set channel context - Channel=%s, UserID=%s", msg.Channel, msg.UserID)
-		} else {
-			logger.Warn("ContextAdapter: msg.Channel is empty!")
-		}
-	} else {
-		logger.Warn("ContextAdapter: cronWrapper is nil!")
+	if a.cronWrapper != nil && msg.Channel != "" {
+		a.cronWrapper.SetChannelContext(msg.Channel, msg.UserID)
+	}
+
+	// 设置 message 工具的渠道上下文
+	if a.messageTool != nil && msg.Channel != "" {
+		a.messageTool.SetContext(msg.Channel, msg.UserID)
 	}
 
 	return a.handler.HandleMessage(ctx, msg)
@@ -43,17 +53,16 @@ func (a *ContextAdapter) HandleMessage(ctx context.Context, msg *Message) (strin
 
 // HandleMessageStream 实现 StreamingMessageHandler 接口
 func (a *ContextAdapter) HandleMessageStream(ctx context.Context, msg *Message, callback stream.StreamCallback) error {
-	logger.Info("ContextAdapter.HandleMessageStream called: Channel=%s, UserID=%s", msg.Channel, msg.UserID)
+	logger.Debug("ContextAdapter.HandleMessageStream: Channel=%s, UserID=%s", msg.Channel, msg.UserID)
+
 	// 设置 cron 工具的渠道上下文
-	if a.cronWrapper != nil {
-		if msg.Channel != "" {
-			a.cronWrapper.SetChannelContext(msg.Channel, msg.UserID)
-			logger.Info("ContextAdapter: set channel context (stream) - Channel=%s, UserID=%s", msg.Channel, msg.UserID)
-		} else {
-			logger.Warn("ContextAdapter: msg.Channel is empty!")
-		}
-	} else {
-		logger.Warn("ContextAdapter: cronWrapper is nil!")
+	if a.cronWrapper != nil && msg.Channel != "" {
+		a.cronWrapper.SetChannelContext(msg.Channel, msg.UserID)
+	}
+
+	// 设置 message 工具的渠道上下文
+	if a.messageTool != nil && msg.Channel != "" {
+		a.messageTool.SetContext(msg.Channel, msg.UserID)
 	}
 
 	// 检查是否支持流式处理

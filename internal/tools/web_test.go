@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -252,4 +253,76 @@ func truncateStr(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen]
+}
+
+// MockMessageSender 用于测试的模拟消息发送器
+type MockMessageSender struct {
+	lastChannel string
+	lastTo      string
+	lastContent string
+	err         error
+}
+
+func (m *MockMessageSender) SendMessage(channelName string, to string, content string) error {
+	m.lastChannel = channelName
+	m.lastTo = to
+	m.lastContent = content
+	return m.err
+}
+
+func TestMessageTool_Basic(t *testing.T) {
+	mockSender := &MockMessageSender{}
+	tool := NewMessageTool(mockSender)
+
+	if tool.Name() != "message" {
+		t.Errorf("Expected name 'message', got '%s'", tool.Name())
+	}
+
+	if tool.IsDangerous() {
+		t.Error("message tool should not be dangerous")
+	}
+}
+
+func TestMessageTool_NoContext(t *testing.T) {
+	mockSender := &MockMessageSender{}
+	tool := NewMessageTool(mockSender)
+	ctx := context.Background()
+
+	params := json.RawMessage(`{"content":"Hello"}`)
+	result, err := tool.Execute(ctx, params)
+
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Should return warning when no context
+	if !strings.Contains(result, "Warning") {
+		t.Errorf("Expected warning about no context, got: %s", result)
+	}
+}
+
+func TestMessageTool_WithSender(t *testing.T) {
+	mockSender := &MockMessageSender{}
+	tool := NewMessageTool(mockSender)
+	tool.SetContext("feishu", "user123")
+	ctx := context.Background()
+
+	params := json.RawMessage(`{"content":"Test message"}`)
+	result, err := tool.Execute(ctx, params)
+
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if mockSender.lastChannel != "feishu" {
+		t.Errorf("Expected channel 'feishu', got '%s'", mockSender.lastChannel)
+	}
+	if mockSender.lastTo != "user123" {
+		t.Errorf("Expected to 'user123', got '%s'", mockSender.lastTo)
+	}
+	if mockSender.lastContent != "Test message" {
+		t.Errorf("Expected content 'Test message', got '%s'", mockSender.lastContent)
+	}
+
+	t.Logf("Result: %s", result)
 }
