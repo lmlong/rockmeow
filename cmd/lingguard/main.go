@@ -8,15 +8,14 @@ import (
 )
 
 func main() {
-	// 设置默认配置路径
+	// 设置配置路径（按优先级）
 	configPath := os.Getenv("LINGGUARD_CONFIG")
 	if configPath == "" {
-		// 优先从本地 configs 目录加载
-		localConfig := filepath.Join("configs", "config.json")
-		if _, err := os.Stat(localConfig); err == nil {
-			configPath = localConfig
+		// 1. 优先检查当前工作目录下的 config.json
+		if _, err := os.Stat("config.json"); err == nil {
+			configPath = "config.json"
 		} else {
-			// 如果本地不存在，从用户主目录加载
+			// 2. 默认使用 ~/.lingguard/config.json
 			home, _ := os.UserHomeDir()
 			configPath = filepath.Join(home, ".lingguard", "config.json")
 		}

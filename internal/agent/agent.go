@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -44,16 +46,16 @@ func NewAgent(cfg *config.AgentsConfig, provider providers.Provider, skillsLoade
 	toolRegistry := tools.NewRegistry()
 
 	// 初始化文件持久化存储（参考 nanobot）
+	// 记忆目录固定在 ~/.lingguard/memory/
 	var memStore *memory.FileStore
 	var memBuilder *memory.ContextBuilder
 	var sessionStore memory.Store
 
 	if cfg.MemoryConfig != nil && cfg.MemoryConfig.Enabled {
-		// 使用文件存储
-		memDir := cfg.MemoryConfig.MemoryDir
-		if memDir == "" {
-			memDir = "~/.lingguard/memory"
-		}
+		// 使用文件存储，目录固定为 ~/.lingguard/memory
+		home, _ := os.UserHomeDir()
+		memDir := filepath.Join(home, ".lingguard", "memory")
+
 		memStore = memory.NewFileStore(memDir)
 		if err := memStore.Init(); err != nil {
 			logger.Warn("Failed to init file memory store: %v, using in-memory", err)

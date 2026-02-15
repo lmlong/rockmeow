@@ -49,7 +49,6 @@
     "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。",
     "memory": {
       "enabled": true,
-      "memoryDir": "~/.lingguard/memory",
       "recentDays": 3,
       "maxHistoryLines": 1000
     }

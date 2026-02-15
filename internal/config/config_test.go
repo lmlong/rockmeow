@@ -36,9 +36,7 @@ func TestDefaultConfig(t *testing.T) {
 		if !cfg.Agents.MemoryConfig.Enabled {
 			t.Error("Expected MemoryConfig.Enabled=true")
 		}
-		if cfg.Agents.MemoryConfig.MemoryDir != "~/.lingguard/memory" {
-			t.Errorf("Expected MemoryDir=~/.lingguard/memory, got %s", cfg.Agents.MemoryConfig.MemoryDir)
-		}
+		// 记忆目录固定在 ~/.lingguard/memory/
 	}
 
 	if cfg.Logging.Level != "info" {
