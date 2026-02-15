@@ -119,13 +119,17 @@ func createAgent(cfg *config.Config) (*agent.Agent, error) {
 	// 5. 创建 Agent
 	ag := agent.NewAgent(&cfg.Agents, provider, skillsLoader)
 
-	// 6. 注册工具
+	// 6. 创建工作目录管理器
 	workspace := cfg.Agents.Workspace
 	if workspace == "" {
 		workspace = cfg.Tools.Workspace
 	}
-	ag.RegisterTool(tools.NewShellTool(workspace, cfg.Tools.RestrictToWorkspace))
-	ag.RegisterTool(tools.NewFileTool(workspace, cfg.Tools.RestrictToWorkspace))
+	workspaceMgr := tools.NewWorkspaceManager(workspace, cfgPath)
+
+	// 7. 注册工具
+	ag.RegisterTool(tools.NewShellTool(workspaceMgr, cfg.Tools.RestrictToWorkspace))
+	ag.RegisterTool(tools.NewFileTool(workspaceMgr, cfg.Tools.RestrictToWorkspace))
+	ag.RegisterTool(tools.NewWorkspaceTool(workspaceMgr))
 
 	// 注册 Web 工具
 	braveAPIKey := cfg.Tools.BraveAPIKey

@@ -11,15 +11,15 @@ import (
 
 // FileTool 文件操作工具
 type FileTool struct {
-	workspace string
-	sandboxed bool
+	workspaceMgr *WorkspaceManager
+	sandboxed    bool
 }
 
 // NewFileTool 创建文件工具
-func NewFileTool(workspace string, sandboxed bool) *FileTool {
+func NewFileTool(workspaceMgr *WorkspaceManager, sandboxed bool) *FileTool {
 	return &FileTool{
-		workspace: expandPath(workspace),
-		sandboxed: sandboxed,
+		workspaceMgr: workspaceMgr,
+		sandboxed:    sandboxed,
 	}
 }
 
@@ -101,7 +101,7 @@ func (t *FileTool) validatePath(path string) error {
 		return err
 	}
 
-	absWorkspace, _ := filepath.Abs(t.workspace)
+	absWorkspace, _ := filepath.Abs(t.workspaceMgr.Get())
 	if !strings.HasPrefix(absPath, absWorkspace) {
 		return fmt.Errorf("path outside workspace: %s", path)
 	}

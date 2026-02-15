@@ -8,8 +8,21 @@ import (
 	"testing"
 )
 
+func newTestWorkspaceMgr(t *testing.T, path string) *WorkspaceManager {
+	if path == "" {
+		tmpDir, err := os.MkdirTemp("", "lingguard-test-*")
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		t.Cleanup(func() { os.RemoveAll(tmpDir) })
+		path = tmpDir
+	}
+	return NewWorkspaceManager(path, "")
+}
+
 func TestShellToolBasic(t *testing.T) {
-	tool := NewShellTool("", false)
+	mgr := newTestWorkspaceMgr(t, "")
+	tool := NewShellTool(mgr, false)
 
 	if tool.Name() != "shell" {
 		t.Errorf("Expected name=shell, got %s", tool.Name())
@@ -30,21 +43,23 @@ func TestShellToolBasic(t *testing.T) {
 }
 
 func TestShellToolExecute(t *testing.T) {
-	tool := NewShellTool("", false)
+	mgr := newTestWorkspaceMgr(t, "")
+	tool := NewShellTool(mgr, false)
 	ctx := context.Background()
 
 	params := json.RawMessage(`{"command":"echo hello"}`)
-	_, err := tool.Execute(ctx, params)
+	result, err := tool.Execute(ctx, params)
 
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	// 检查输出包含 hello
+	t.Logf("Result: %s", result)
 }
 
 func TestShellToolWithTimeout(t *testing.T) {
-	tool := NewShellTool("", false)
+	mgr := newTestWorkspaceMgr(t, "")
+	tool := NewShellTool(mgr, false)
 	ctx := context.Background()
 
 	params := json.RawMessage(`{"command":"sleep 0.1","timeout":1}`)
@@ -56,7 +71,8 @@ func TestShellToolWithTimeout(t *testing.T) {
 }
 
 func TestShellToolInvalidParams(t *testing.T) {
-	tool := NewShellTool("", false)
+	mgr := newTestWorkspaceMgr(t, "")
+	tool := NewShellTool(mgr, false)
 	ctx := context.Background()
 
 	params := json.RawMessage(`{}`)
@@ -68,7 +84,8 @@ func TestShellToolInvalidParams(t *testing.T) {
 }
 
 func TestShellToolSandbox(t *testing.T) {
-	tool := NewShellTool("/tmp", true)
+	mgr := newTestWorkspaceMgr(t, "/tmp")
+	tool := NewShellTool(mgr, true)
 
 	if !tool.sandboxed {
 		t.Error("Tool should be sandboxed")
@@ -76,7 +93,8 @@ func TestShellToolSandbox(t *testing.T) {
 }
 
 func TestShellToolDangerousCommand(t *testing.T) {
-	tool := NewShellTool("", true)
+	mgr := newTestWorkspaceMgr(t, "")
+	tool := NewShellTool(mgr, true)
 	ctx := context.Background()
 
 	// 测试危险命令检测
@@ -89,7 +107,8 @@ func TestShellToolDangerousCommand(t *testing.T) {
 }
 
 func TestFileToolBasic(t *testing.T) {
-	tool := NewFileTool("", false)
+	mgr := newTestWorkspaceMgr(t, "")
+	tool := NewFileTool(mgr, false)
 
 	if tool.Name() != "file" {
 		t.Errorf("Expected name=file, got %s", tool.Name())
@@ -112,7 +131,8 @@ func TestFileToolReadWrite(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	tool := NewFileTool(tmpDir, false)
+	mgr := NewWorkspaceManager(tmpDir, "")
+	tool := NewFileTool(mgr, false)
 	ctx := context.Background()
 
 	testFile := filepath.Join(tmpDir, "test.txt")
@@ -144,7 +164,8 @@ func TestFileToolEdit(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	tool := NewFileTool(tmpDir, false)
+	mgr := NewWorkspaceManager(tmpDir, "")
+	tool := NewFileTool(mgr, false)
 	ctx := context.Background()
 
 	testFile := filepath.Join(tmpDir, "edit.txt")
@@ -177,20 +198,22 @@ func TestFileToolList(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "file1.txt"), []byte("1"), 0644)
 	os.Mkdir(filepath.Join(tmpDir, "subdir"), 0755)
 
-	tool := NewFileTool(tmpDir, false)
+	mgr := NewWorkspaceManager(tmpDir, "")
+	tool := NewFileTool(mgr, false)
 	ctx := context.Background()
 
 	params := json.RawMessage(`{"operation":"list","path":"` + tmpDir + `"}`)
-	_, err = tool.Execute(ctx, params)
+	result, err := tool.Execute(ctx, params)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
 
-	// 检查结果包含文件
+	t.Logf("List result: %s", result)
 }
 
 func TestFileToolInvalidOperation(t *testing.T) {
-	tool := NewFileTool("", false)
+	mgr := newTestWorkspaceMgr(t, "")
+	tool := NewFileTool(mgr, false)
 	ctx := context.Background()
 
 	params := json.RawMessage(`{"operation":"invalid","path":"/tmp"}`)
@@ -203,9 +226,10 @@ func TestFileToolInvalidOperation(t *testing.T) {
 
 func TestRegistry(t *testing.T) {
 	registry := NewRegistry()
+	mgr := newTestWorkspaceMgr(t, "")
 
-	shellTool := NewShellTool("", false)
-	fileTool := NewFileTool("", false)
+	shellTool := NewShellTool(mgr, false)
+	fileTool := NewFileTool(mgr, false)
 
 	registry.Register(shellTool)
 	registry.Register(fileTool)
@@ -233,7 +257,8 @@ func TestRegistry(t *testing.T) {
 }
 
 func TestToolDefinition(t *testing.T) {
-	tool := NewShellTool("", false)
+	mgr := newTestWorkspaceMgr(t, "")
+	tool := NewShellTool(mgr, false)
 	def := Definition(tool)
 
 	if def["type"] != "function" {
@@ -248,4 +273,49 @@ func TestToolDefinition(t *testing.T) {
 	if fn["name"] != "shell" {
 		t.Errorf("Expected function name=shell, got %s", fn["name"])
 	}
+}
+
+func TestWorkspaceTool(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "lingguard-workspace-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mgr := NewWorkspaceManager(tmpDir, "")
+	tool := NewWorkspaceTool(mgr)
+	ctx := context.Background()
+
+	// Test pwd
+	pwdParams := json.RawMessage(`{"operation":"pwd"}`)
+	result, err := tool.Execute(ctx, pwdParams)
+	if err != nil {
+		t.Fatalf("pwd failed: %v", err)
+	}
+	t.Logf("pwd result: %s", result)
+
+	// Create a subdirectory
+	subDir := filepath.Join(tmpDir, "subdir")
+	os.Mkdir(subDir, 0755)
+
+	// Test cd
+	cdParams := json.RawMessage(`{"operation":"cd","path":"subdir"}`)
+	result, err = tool.Execute(ctx, cdParams)
+	if err != nil {
+		t.Fatalf("cd failed: %v", err)
+	}
+	t.Logf("cd result: %s", result)
+
+	// Verify workspace changed
+	if mgr.Get() != subDir {
+		t.Errorf("Expected workspace=%s, got %s", subDir, mgr.Get())
+	}
+
+	// Test ls
+	lsParams := json.RawMessage(`{"operation":"ls"}`)
+	result, err = tool.Execute(ctx, lsParams)
+	if err != nil {
+		t.Fatalf("ls failed: %v", err)
+	}
+	t.Logf("ls result: %s", result)
 }
