@@ -77,6 +77,9 @@ type QQConfig struct {
 type ToolsConfig struct {
 	RestrictToWorkspace bool   `json:"restrictToWorkspace"`
 	Workspace           string `json:"workspace,omitempty"`
+	// Web tools
+	BraveAPIKey string `json:"braveApiKey,omitempty"` // Brave Search API Key
+	WebMaxChars int    `json:"webMaxChars,omitempty"` // 网页抓取最大字符数，默认 50000
 }
 
 // StorageConfig 存储配置

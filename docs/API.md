@@ -302,10 +302,52 @@ config.json 中的配置会覆盖 spec.go 中的默认值：
 
 ### 5.3 网页工具
 
-| 工具名 | 说明 | 参数 |
-|--------|------|------|
-| web_fetch | 抓取网页 | `url`: 网页地址 |
-| web_search | 搜索网页 | `query`: 搜索关键词 |
+#### 5.3.1 web_search
+
+使用 Brave Search API 搜索网页。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| query | string | 是 | 搜索关键词 |
+| count | integer | 否 | 返回结果数量 (1-10)，默认 5 |
+
+**配置要求**：需要设置 `braveApiKey` 配置或 `BRAVE_API_KEY` 环境变量。
+
+**返回示例**：
+```
+Results for: Go programming language
+
+1. The Go Programming Language
+   https://go.dev/
+   Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.
+
+2. GitHub - golang/go
+   https://github.com/golang/go
+   The Go programming language. Contribute to golang/go development by creating an account on GitHub.
+```
+
+#### 5.3.2 web_fetch
+
+抓取网页内容并提取可读文本。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| url | string | 是 | 网页地址 |
+| extractMode | string | 否 | 提取模式: `markdown` 或 `text`，默认 `markdown` |
+| maxChars | integer | 否 | 最大字符数，默认 50000 |
+
+**返回示例**：
+```json
+{
+  "url": "https://example.com",
+  "finalUrl": "https://example.com/",
+  "status": 200,
+  "extractor": "readability",
+  "truncated": false,
+  "length": 1234,
+  "text": "# Example Domain\n\nThis domain is for use in illustrative examples..."
+}
+```
 
 ### 5.4 Spawn 工具
 

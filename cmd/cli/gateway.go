@@ -198,6 +198,14 @@ func createGatewayAgent(cfg *config.Config) (*agent.Agent, error) {
 	ag.RegisterTool(tools.NewShellTool(workspace, cfg.Tools.RestrictToWorkspace))
 	ag.RegisterTool(tools.NewFileTool(workspace, cfg.Tools.RestrictToWorkspace))
 
+	// 注册 Web 工具
+	braveAPIKey := cfg.Tools.BraveAPIKey
+	if braveAPIKey == "" {
+		braveAPIKey = os.Getenv("BRAVE_API_KEY")
+	}
+	ag.RegisterTool(tools.NewWebSearchTool(braveAPIKey, 5))
+	ag.RegisterTool(tools.NewWebFetchTool(cfg.Tools.WebMaxChars))
+
 	// 7. 注册技能工具（支持按需加载技能）
 	ag.RegisterSkillTool()
 

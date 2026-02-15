@@ -108,7 +108,9 @@
   "tools": {
     "_comment": "==================== 工具配置 ====================",
     "restrictToWorkspace": false,
-    "workspace": "~/.lingguard/workspace"
+    "workspace": "~/.lingguard/workspace",
+    "braveApiKey": "",
+    "webMaxChars": 50000
   },
 
   "storage": {

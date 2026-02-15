@@ -12,6 +12,7 @@
 - **持久化记忆** - MEMORY.md + HISTORY.md 方案
 - **定时任务** - Cron 调度，支持时区
 - **子代理** - 后台异步执行复杂任务
+- **网页工具** - 搜索和抓取网页内容
 - **单二进制部署** - 无运行时依赖
 
 ## 快速开始
@@ -205,6 +206,10 @@ go mod tidy
       "appId": "xxx",
       "secret": "xxx"
     }
+  },
+  "tools": {
+    "braveApiKey": "",
+    "webMaxChars": 50000
   },
   "cron": {
     "enabled": true,
