@@ -115,6 +115,13 @@ func (a *Agent) RegisterMemoryTool() {
 	}
 }
 
+// RegisterCronTool 注册定时任务工具
+func (a *Agent) RegisterCronTool(service tools.CronService) {
+	if service != nil {
+		a.toolRegistry.Register(tools.NewCronTool(service))
+	}
+}
+
 // RecordEvent 记录事件到历史（参考 nanobot）
 func (a *Agent) RecordEvent(eventType, summary string, details map[string]string) error {
 	if a.memoryStore == nil {

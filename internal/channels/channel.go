@@ -13,6 +13,8 @@ type Message struct {
 	SessionID string         // 会话ID (格式: "feishu-{open_id}")
 	Content   string         // 消息文本内容
 	Metadata  map[string]any // 平台特定元数据
+	Channel   string         // 渠道名称（如 "feishu"）
+	UserID    string         // 用户ID（用于投递响应）
 }
 
 // MessageHandler 处理消息的接口 (由 Agent 适配器实现)

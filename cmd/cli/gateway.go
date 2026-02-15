@@ -53,25 +53,13 @@ func runGateway() error {
 
 	// 创建 Channel Manager
 	mgr := channels.NewManager()
-	adapter := channels.NewAgentAdapter(ag)
 
-	// 注册飞书渠道
-	if cfg.Channels.Feishu != nil && cfg.Channels.Feishu.Enabled {
-		if cfg.Channels.Feishu.AppID == "" || cfg.Channels.Feishu.AppSecret == "" {
-			return fmt.Errorf("feishu channel enabled but appId or appSecret not configured")
-		}
-		fc := channels.NewFeishuChannel(cfg.Channels.Feishu, adapter)
-		mgr.RegisterChannel(fc)
-		logger.Info("Feishu channel registered")
-	}
+	// 创建基础 AgentAdapter
+	baseAdapter := channels.NewAgentAdapter(ag)
 
-	// 检查是否有渠道注册
-	if cfg.Channels.Feishu == nil || !cfg.Channels.Feishu.Enabled {
-		return fmt.Errorf("no channels enabled, please configure at least one channel")
-	}
-
-	// 启动定时任务服务
+	// 启动定时任务服务（先启动，这样 ContextAdapter 才能正确包装）
 	var cronService *cron.Service
+	var cronWrapper *tools.CronServiceWrapper
 	if cfg.Cron != nil && cfg.Cron.Enabled {
 		storePath := expandHomePath(cfg.Cron.StorePath)
 		if storePath == "" {
@@ -86,6 +74,32 @@ func runGateway() error {
 			return fmt.Errorf("start cron service: %w", err)
 		}
 		logger.Info("Cron service started")
+
+		// 创建包装器并注册到 Agent
+		cronWrapper = tools.NewCronServiceWrapper(cronService)
+		ag.RegisterCronTool(cronWrapper)
+	}
+
+	// 使用 ContextAdapter 包装 AgentAdapter（如果 cron 启用）
+	var adapter channels.MessageHandler = baseAdapter
+	if cronWrapper != nil {
+		adapter = channels.NewContextAdapter(baseAdapter, cronWrapper)
+		logger.Info("ContextAdapter enabled for cron delivery")
+	}
+
+	// 注册飞书渠道
+	if cfg.Channels.Feishu != nil && cfg.Channels.Feishu.Enabled {
+		if cfg.Channels.Feishu.AppID == "" || cfg.Channels.Feishu.AppSecret == "" {
+			return fmt.Errorf("feishu channel enabled but appId or appSecret not configured")
+		}
+		fc := channels.NewFeishuChannel(cfg.Channels.Feishu, adapter)
+		mgr.RegisterChannel(fc)
+		logger.Info("Feishu channel registered")
+	}
+
+	// 检查是否有渠道注册
+	if cfg.Channels.Feishu == nil || !cfg.Channels.Feishu.Enabled {
+		return fmt.Errorf("no channels enabled, please configure at least one channel")
 	}
 
 	// 启动

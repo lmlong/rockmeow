@@ -217,6 +217,8 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 		ID:        messageID,
 		SessionID: "feishu-" + senderID,
 		Content:   strings.TrimSpace(content),
+		Channel:   "feishu",
+		UserID:    replyTo, // Use reply_to as the user ID for delivery
 		Metadata: map[string]any{
 			"chat_id":    chatID,
 			"open_id":    senderID,
