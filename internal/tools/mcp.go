@@ -407,8 +407,8 @@ func (m *MCPManager) ConnectServers(ctx context.Context, servers map[string]conf
 
 		// Determine transport type based on config
 		if cfg.URL != "" {
-			// HTTP/SSE transport
-			client = NewSSEClient(name, cfg)
+			// HTTP transport (simple POST-based)
+			client = NewMCPHTTPClient(name, cfg)
 		} else if cfg.Command != "" {
 			// Stdio transport
 			client = NewMCPClient(name, cfg)

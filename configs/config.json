@@ -56,6 +56,9 @@
       "filesystem": {
         "command": "npx",
         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/mcp-test"]
+      },
+      "http-test": {
+        "url": "http://localhost:8765/mcp"
       }
     }
   },
