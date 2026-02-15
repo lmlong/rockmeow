@@ -80,6 +80,16 @@ type ToolsConfig struct {
 	// Web tools
 	BraveAPIKey string `json:"braveApiKey,omitempty"` // Brave Search API Key
 	WebMaxChars int    `json:"webMaxChars,omitempty"` // 网页抓取最大字符数，默认 50000
+	// MCP (Model Context Protocol) servers
+	MCPServers map[string]MCPServerConfig `json:"mcpServers,omitempty"` // MCP 服务器配置
+}
+
+// MCPServerConfig MCP 服务器配置
+type MCPServerConfig struct {
+	Command string            `json:"command,omitempty"` // Stdio: 命令 (e.g. "npx")
+	Args    []string          `json:"args,omitempty"`    // Stdio: 命令参数
+	Env     map[string]string `json:"env,omitempty"`     // Stdio: 环境变量
+	URL     string            `json:"url,omitempty"`     // HTTP: Streamable HTTP 端点 URL
 }
 
 // StorageConfig 存储配置

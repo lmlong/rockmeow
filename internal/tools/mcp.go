@@ -1,0 +1,462 @@
+// Package tools MCP (Model Context Protocol) client implementation
+package tools
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+
+	"github.com/lingguard/internal/config"
+	"github.com/lingguard/pkg/logger"
+)
+
+// MCPToolWrapper wraps an MCP server tool as a native LingGuard Tool
+type MCPToolWrapper struct {
+	serverName   string
+	originalName string
+	name         string
+	description  string
+	parameters   map[string]interface{}
+	client       MCPToolCaller
+}
+
+// MCPToolCaller interface for calling MCP tools
+type MCPToolCaller interface {
+	CallTool(ctx context.Context, name string, args map[string]interface{}) (string, error)
+}
+
+// NewMCPToolWrapper creates a wrapper for an MCP tool
+func NewMCPToolWrapper(client MCPToolCaller, serverName, originalName, description string, parameters map[string]interface{}) *MCPToolWrapper {
+	return &MCPToolWrapper{
+		serverName:   serverName,
+		originalName: originalName,
+		name:         fmt.Sprintf("mcp_%s_%s", serverName, originalName),
+		description:  description,
+		parameters:   parameters,
+		client:       client,
+	}
+}
+
+func (t *MCPToolWrapper) Name() string {
+	return t.name
+}
+
+func (t *MCPToolWrapper) Description() string {
+	return t.description
+}
+
+func (t *MCPToolWrapper) Parameters() map[string]interface{} {
+	return t.parameters
+}
+
+func (t *MCPToolWrapper) Execute(ctx context.Context, params json.RawMessage) (string, error) {
+	var args map[string]interface{}
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &args); err != nil {
+			return "", fmt.Errorf("invalid parameters: %w", err)
+		}
+	}
+
+	result, err := t.client.CallTool(ctx, t.originalName, args)
+	if err != nil {
+		return "", err
+	}
+	return result, nil
+}
+
+func (t *MCPToolWrapper) IsDangerous() bool {
+	return false
+}
+
+// MCPToolDefinition MCP 工具定义
+type MCPToolDefinition struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"inputSchema"`
+}
+
+// MCPClient MCP 客户端
+type MCPClient struct {
+	mu         sync.RWMutex
+	cmd        *exec.Cmd
+	serverName string
+	config     config.MCPServerConfig
+	tools      map[string]*MCPToolDefinition
+	// JSON-RPC communication
+	stdin     io.WriteCloser
+	stdout    *bufio.Reader
+	requestID int64
+	encoder   *json.Encoder
+}
+
+// NewMCPClient creates a new MCP client
+func NewMCPClient(serverName string, cfg config.MCPServerConfig) *MCPClient {
+	return &MCPClient{
+		serverName: serverName,
+		config:     cfg,
+		tools:      make(map[string]*MCPToolDefinition),
+	}
+}
+
+// Connect connects to the MCP server
+func (c *MCPClient) Connect(ctx context.Context) error {
+	if c.config.Command == "" {
+		return fmt.Errorf("MCP server '%s': no command configured", c.serverName)
+	}
+
+	// Create command
+	c.cmd = exec.CommandContext(ctx, c.config.Command, c.config.Args...)
+
+	// Set environment
+	if c.config.Env != nil {
+		c.cmd.Env = os.Environ()
+		for k, v := range c.config.Env {
+			c.cmd.Env = append(c.cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
+
+	// Set up pipes
+	stdin, err := c.cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("create stdin pipe: %w", err)
+	}
+	stdout, err := c.cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("create stdout pipe: %w", err)
+	}
+	// Redirect stderr to parent stderr for logging
+	c.cmd.Stderr = os.Stderr
+
+	// Start the process
+	if err := c.cmd.Start(); err != nil {
+		return fmt.Errorf("start MCP server: %w", err)
+	}
+
+	// Create JSON-RPC client
+	c.stdin = stdin
+	c.stdout = bufio.NewReader(stdout)
+	c.encoder = json.NewEncoder(stdin)
+	c.requestID = 0
+
+	// Initialize
+	if err := c.initialize(); err != nil {
+		c.Close()
+		return fmt.Errorf("initialize MCP server: %w", err)
+	}
+
+	// List tools
+	if err := c.listTools(); err != nil {
+		c.Close()
+		return fmt.Errorf("list MCP tools: %w", err)
+	}
+
+	logger.Info("MCP server '%s': connected, %d tools registered", c.serverName, len(c.tools))
+	return nil
+}
+
+// Close closes the MCP client
+func (c *MCPClient) Close() error {
+	if c.stdin != nil {
+		c.stdin.Close()
+	}
+	if c.cmd != nil && c.cmd.Process != nil {
+		c.cmd.Process.Kill()
+		c.cmd.Wait()
+	}
+	return nil
+}
+
+// JSON-RPC types
+type jsonRPCRequest struct {
+	JSONRPC string      `json:"jsonrpc"`
+	ID      int64       `json:"id"`
+	Method  string      `json:"method"`
+	Params  interface{} `json:"params,omitempty"`
+}
+
+type jsonRPCResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      int64           `json:"id"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *jsonRPCError   `json:"error,omitempty"`
+}
+
+type jsonRPCError struct {
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+// sendRequest sends a JSON-RPC request and waits for response
+func (c *MCPClient) sendRequest(method string, params interface{}) (json.RawMessage, error) {
+	c.mu.Lock()
+	c.requestID++
+	id := c.requestID
+	c.mu.Unlock()
+
+	req := jsonRPCRequest{
+		JSONRPC: "2.0",
+		ID:      id,
+		Method:  method,
+		Params:  params,
+	}
+
+	logger.Debug("MCP: sending request method=%s id=%d", method, id)
+
+	if err := c.encoder.Encode(req); err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+
+	// Read response, skipping any non-JSON lines (like server startup messages)
+	var resp jsonRPCResponse
+	for {
+		line, err := c.stdout.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Try to parse as JSON
+		if err := json.Unmarshal([]byte(line), &resp); err != nil {
+			logger.Debug("MCP: skipping non-JSON line: %s", line)
+			continue
+		}
+
+		// Check if this response matches our request ID
+		if resp.ID != id {
+			logger.Debug("MCP: skipping response with wrong ID %d (expected %d)", resp.ID, id)
+			continue
+		}
+
+		break
+	}
+
+	logger.Debug("MCP: received response id=%d error=%v", resp.ID, resp.Error)
+
+	if resp.Error != nil {
+		return nil, fmt.Errorf("RPC error %d: %s", resp.Error.Code, resp.Error.Message)
+	}
+
+	return resp.Result, nil
+}
+
+// initialize sends initialize request to MCP server
+func (c *MCPClient) initialize() error {
+	params := map[string]interface{}{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]interface{}{},
+		"clientInfo": map[string]interface{}{
+			"name":    "lingguard",
+			"version": "1.0.0",
+		},
+	}
+
+	result, err := c.sendRequest("initialize", params)
+	if err != nil {
+		return err
+	}
+
+	// Parse result to verify
+	var initResult struct {
+		ProtocolVersion string `json:"protocolVersion"`
+		ServerInfo      struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"serverInfo"`
+	}
+	if err := json.Unmarshal(result, &initResult); err != nil {
+		return fmt.Errorf("parse initialize result: %w", err)
+	}
+
+	logger.Info("MCP server '%s': initialized (protocol=%s, server=%s/%s)",
+		c.serverName, initResult.ProtocolVersion, initResult.ServerInfo.Name, initResult.ServerInfo.Version)
+
+	// Send initialized notification (no ID, no response expected)
+	notif := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/initialized",
+	}
+	if err := c.encoder.Encode(notif); err != nil {
+		return fmt.Errorf("send initialized notification: %w", err)
+	}
+
+	return nil
+}
+
+// listTools retrieves available tools from MCP server
+func (c *MCPClient) listTools() error {
+	result, err := c.sendRequest("tools/list", map[string]interface{}{})
+	if err != nil {
+		return err
+	}
+
+	var listResult struct {
+		Tools []MCPToolDefinition `json:"tools"`
+	}
+	if err := json.Unmarshal(result, &listResult); err != nil {
+		return fmt.Errorf("parse tools list: %w", err)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, tool := range listResult.Tools {
+		c.tools[tool.Name] = &tool
+	}
+
+	return nil
+}
+
+// CallTool calls a tool on the MCP server
+func (c *MCPClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	params := map[string]interface{}{
+		"name":      name,
+		"arguments": args,
+	}
+
+	result, err := c.sendRequest("tools/call", params)
+	if err != nil {
+		return "", err
+	}
+
+	var callResult struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if err := json.Unmarshal(result, &callResult); err != nil {
+		return "", fmt.Errorf("parse call result: %w", err)
+	}
+
+	if callResult.IsError {
+		if len(callResult.Content) > 0 {
+			return "", fmt.Errorf("tool error: %s", callResult.Content[0].Text)
+		}
+		return "", fmt.Errorf("tool error (unknown)")
+	}
+
+	// Combine text content
+	var output string
+	for _, content := range callResult.Content {
+		if content.Type == "text" {
+			if output != "" {
+				output += "\n"
+			}
+			output += content.Text
+		}
+	}
+
+	if output == "" {
+		output = "(no output)"
+	}
+
+	return output, nil
+}
+
+// GetTools returns all tools from this MCP server
+func (c *MCPClient) GetTools() []*MCPToolDefinition {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	tools := make([]*MCPToolDefinition, 0, len(c.tools))
+	for _, tool := range c.tools {
+		tools = append(tools, tool)
+	}
+	return tools
+}
+
+// MCPManager manages multiple MCP server connections
+type MCPManager struct {
+	mu      sync.RWMutex
+	clients map[string]MCPClientInterface
+	tools   map[string]Tool
+}
+
+// MCPClientInterface interface for MCP clients
+type MCPClientInterface interface {
+	Connect(ctx context.Context) error
+	Close() error
+	GetTools() []*MCPToolDefinition
+	CallTool(ctx context.Context, name string, args map[string]interface{}) (string, error)
+}
+
+// NewMCPManager creates a new MCP manager
+func NewMCPManager() *MCPManager {
+	return &MCPManager{
+		clients: make(map[string]MCPClientInterface),
+		tools:   make(map[string]Tool),
+	}
+}
+
+// ConnectServers connects to all configured MCP servers
+func (m *MCPManager) ConnectServers(ctx context.Context, servers map[string]config.MCPServerConfig) error {
+	for name, cfg := range servers {
+		var client MCPClientInterface
+
+		// Determine transport type based on config
+		if cfg.URL != "" {
+			// HTTP/SSE transport
+			client = NewSSEClient(name, cfg)
+		} else if cfg.Command != "" {
+			// Stdio transport
+			client = NewMCPClient(name, cfg)
+		} else {
+			logger.Warn("MCP server '%s': no command or URL configured, skipping", name)
+			continue
+		}
+
+		if err := client.Connect(ctx); err != nil {
+			logger.Error("MCP server '%s': failed to connect: %v", name, err)
+			continue
+		}
+
+		m.mu.Lock()
+		m.clients[name] = client
+
+		// Register tools
+		for _, toolDef := range client.GetTools() {
+			wrapper := NewMCPToolWrapper(client, name, toolDef.Name, toolDef.Description, toolDef.InputSchema)
+			m.tools[wrapper.Name()] = wrapper
+			logger.Debug("MCP: registered tool '%s' from server '%s'", wrapper.Name(), name)
+		}
+		m.mu.Unlock()
+	}
+	return nil
+}
+
+// GetTools returns all MCP tools
+func (m *MCPManager) GetTools() map[string]Tool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	tools := make(map[string]Tool)
+	for name, tool := range m.tools {
+		tools[name] = tool
+	}
+	return tools
+}
+
+// Close closes all MCP connections
+func (m *MCPManager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, client := range m.clients {
+		client.Close()
+	}
+	m.clients = make(map[string]MCPClientInterface)
+	m.tools = make(map[string]Tool)
+	return nil
+}

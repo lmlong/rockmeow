@@ -991,7 +991,109 @@ lingguard cron add "NYC Report" "cron:0 9 * * *" "Morning report" \
 
 ---
 
-## 12. 参考资料
+## 12. MCP (Model Context Protocol)
+
+LingGuard 支持 [MCP](https://modelcontextprotocol.io/) - 连接外部工具服务器并将其作为原生 Agent 工具使用。
+
+### 12.1 配置格式
+
+配置格式与 Claude Desktop / Cursor 兼容，可直接复制任何 MCP 服务器的 README 中的配置：
+
+```json
+{
+  "tools": {
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+      },
+      "fetch": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-fetch"]
+      }
+    }
+  }
+}
+```
+
+### 12.2 传输模式
+
+| 模式 | 配置 | 示例 |
+|------|------|------|
+| **Stdio** | `command` + `args` | 本地进程，如 `npx` / `uvx` |
+| **HTTP/SSE** | `url` | 远程端点，SSE 连接 |
+
+### 12.3 MCPServerConfig 配置项
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| command | string | Stdio 模式：执行的命令 (e.g. "npx") |
+| args | []string | Stdio 模式：命令参数 |
+| env | map | Stdio 模式：额外的环境变量 |
+| url | string | HTTP 模式：Streamable HTTP 端点 URL (开发中) |
+
+### 12.4 MCP 工具命名
+
+MCP 工具自动注册为 `mcp_{server_name}_{tool_name}` 格式：
+
+```
+原始工具名: read_file
+服务器名: filesystem
+注册名: mcp_filesystem_read_file
+```
+
+### 12.5 示例：HTTP MCP 服务器
+
+```json
+{
+  "tools": {
+    "mcpServers": {
+      "remote-mcp": {
+        "url": "https://mcp.example.com/sse"
+      }
+    }
+  }
+}
+```
+
+### 12.6 示例：文件系统 MCP
+
+```json
+{
+  "tools": {
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"],
+        "env": {
+          "NODE_OPTIONS": "--max-old-space-size=4096"
+        }
+      }
+    }
+  }
+}
+```
+
+启动后，Agent 可使用以下工具：
+- `mcp_filesystem_read_file` - 读取文件
+- `mcp_filesystem_write_file` - 写入文件
+- `mcp_filesystem_list_directory` - 列出目录
+- `mcp_filesystem_search_files` - 搜索文件
+
+### 12.7 常用 MCP 服务器
+
+| 服务器 | 说明 | 安装命令 |
+|--------|------|----------|
+| server-filesystem | 文件系统访问 | `npx -y @modelcontextprotocol/server-filesystem` |
+| server-fetch | HTTP 请求 | `npx -y @modelcontextprotocol/server-fetch` |
+| server-sqlite | SQLite 数据库 | `npx -y @modelcontextprotocol/server-sqlite` |
+| server-github | GitHub API | `npx -y @modelcontextprotocol/server-github` |
+
+更多 MCP 服务器请参考：[MCP Servers Directory](https://github.com/modelcontextprotocol/servers)
+
+---
+
+## 13. 参考资料
 
 - [OpenAI API Reference](https://platform.openai.com/docs/api-reference)
 - [Anthropic API Reference](https://docs.anthropic.com/en/api)

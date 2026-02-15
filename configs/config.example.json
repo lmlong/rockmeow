@@ -110,7 +110,21 @@
     "restrictToWorkspace": false,
     "workspace": "~/.lingguard/workspace",
     "braveApiKey": "",
-    "webMaxChars": 50000
+    "webMaxChars": 50000,
+    "mcpServers": {
+      "_comment": "MCP (Model Context Protocol) 服务器配置 - 兼容 Claude Desktop / Cursor 格式",
+      "_docs": "https://modelcontextprotocol.io",
+      "filesystem": {
+        "_comment": "文件系统 MCP 服务器示例",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+      },
+      "fetch": {
+        "_comment": "HTTP 请求 MCP 服务器示例",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-fetch"]
+      }
+    }
   },
 
   "storage": {

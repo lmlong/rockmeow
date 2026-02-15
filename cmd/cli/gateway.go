@@ -61,6 +61,22 @@ func runGateway() error {
 	messageTool := tools.NewMessageTool(mgr)
 	ag.RegisterTool(messageTool)
 
+	// 连接 MCP 服务器
+	var mcpManager *tools.MCPManager
+	if len(cfg.Tools.MCPServers) > 0 {
+		mcpManager = tools.NewMCPManager()
+		ctx := context.Background()
+		if err := mcpManager.ConnectServers(ctx, cfg.Tools.MCPServers); err != nil {
+			logger.Error("Failed to connect MCP servers: %v", err)
+		} else {
+			// 注册 MCP 工具
+			for name, tool := range mcpManager.GetTools() {
+				ag.RegisterTool(tool)
+				logger.Debug("Registered MCP tool: %s", name)
+			}
+		}
+	}
+
 	// 启动定时任务服务（先启动，这样 ContextAdapter 才能正确包装）
 	var cronService *cron.Service
 	var cronWrapper *tools.CronServiceWrapper
@@ -136,6 +152,11 @@ func runGateway() error {
 
 	fmt.Println("\nShutting down...")
 	logger.Info("Gateway shutting down")
+
+	// 停止 MCP 服务
+	if mcpManager != nil {
+		mcpManager.Close()
+	}
 
 	// 停止定时任务服务
 	if cronService != nil {

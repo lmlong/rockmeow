@@ -13,6 +13,7 @@
 - **定时任务** - Cron 调度，支持时区
 - **子代理** - 后台异步执行复杂任务
 - **网页工具** - 搜索和抓取网页内容
+- **MCP 支持** - Model Context Protocol，连接外部工具服务器
 - **单二进制部署** - 无运行时依赖
 
 ## 快速开始
@@ -209,7 +210,13 @@ go mod tidy
   },
   "tools": {
     "braveApiKey": "",
-    "webMaxChars": 50000
+    "webMaxChars": 50000,
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"]
+      }
+    }
   },
   "cron": {
     "enabled": true,
@@ -267,6 +274,7 @@ lingguard/
 | 渠道 | 飞书、QQ | 9+ 渠道 |
 | 定时任务 | ✅ | ✅ |
 | 时区支持 | ✅ | ✅ |
+| MCP 支持 | ✅ Stdio + HTTP | ✅ Stdio + HTTP |
 
 ## 依赖
 
