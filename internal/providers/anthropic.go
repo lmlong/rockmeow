@@ -119,6 +119,8 @@ type anthropicStreamEvent struct {
 	Delta *struct {
 		Type string `json:"type"`
 		Text string `json:"text,omitempty"`
+		// 工具调用参数的 JSON 片段
+		PartialJSON string `json:"partial_json,omitempty"`
 	} `json:"delta,omitempty"`
 	ContentBlock *struct {
 		Type  string          `json:"type"`
@@ -190,35 +192,43 @@ func (p *AnthropicProvider) Stream(ctx context.Context, req *llm.Request) (<-cha
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		resp.RawBody().Close()
+		close(eventChan)
+		return nil, fmt.Errorf("API error: status=%d", resp.StatusCode())
+	}
+
 	go func() {
 		defer close(eventChan)
 		defer resp.RawBody().Close()
 
 		scanner := bufio.NewScanner(resp.RawBody())
+		var currentData string
+
 		for scanner.Scan() {
 			line := scanner.Text()
-			if !strings.HasPrefix(line, "data: ") {
+
+			// 处理 data: 行
+			if strings.HasPrefix(line, "data: ") {
+				currentData = strings.TrimPrefix(line, "data: ")
 				continue
 			}
 
-			data := strings.TrimPrefix(line, "data: ")
-			if data == "" {
-				continue
-			}
-
-			var event anthropicStreamEvent
-			if err := json.Unmarshal([]byte(data), &event); err != nil {
-				continue
-			}
-
-			// 转换为通用流式事件
-			streamEvent := p.convertStreamEvent(&event)
-			if streamEvent != nil {
-				select {
-				case eventChan <- *streamEvent:
-				case <-ctx.Done():
-					return
+			// 空行表示事件结束，处理累积的数据
+			if line == "" && currentData != "" {
+				var event anthropicStreamEvent
+				if err := json.Unmarshal([]byte(currentData), &event); err == nil {
+					// 转换为通用流式事件
+					streamEvent := p.convertStreamEvent(&event)
+					if streamEvent != nil {
+						select {
+						case eventChan <- *streamEvent:
+						case <-ctx.Done():
+							return
+						}
+					}
 				}
+				currentData = ""
 			}
 		}
 	}()
@@ -361,22 +371,82 @@ func (p *AnthropicProvider) convertResponse(resp *anthropicResponse, model strin
 func (p *AnthropicProvider) convertStreamEvent(event *anthropicStreamEvent) *llm.StreamEvent {
 	switch event.Type {
 	case "content_block_delta":
-		if event.Delta != nil && event.Delta.Type == "text_delta" {
-			return &llm.StreamEvent{
-				ID:    "",
-				Model: p.model,
-				Choices: []struct {
-					Index        int       `json:"index"`
-					Delta        llm.Delta `json:"delta"`
-					FinishReason string    `json:"finish_reason"`
-				}{
-					{
-						Index: event.Index,
-						Delta: llm.Delta{
-							Content: event.Delta.Text,
+		if event.Delta != nil {
+			// 文本增量
+			if event.Delta.Type == "text_delta" {
+				return &llm.StreamEvent{
+					ID:    "",
+					Model: p.model,
+					Choices: []struct {
+						Index        int       `json:"index"`
+						Delta        llm.Delta `json:"delta"`
+						FinishReason string    `json:"finish_reason"`
+					}{
+						{
+							Index: event.Index,
+							Delta: llm.Delta{
+								Content: event.Delta.Text,
+							},
 						},
 					},
-				},
+				}
+			}
+			// 工具调用参数增量 (input_json_delta)
+			if event.Delta.Type == "input_json_delta" {
+				return &llm.StreamEvent{
+					ID:    "",
+					Model: p.model,
+					Choices: []struct {
+						Index        int       `json:"index"`
+						Delta        llm.Delta `json:"delta"`
+						FinishReason string    `json:"finish_reason"`
+					}{
+						{
+							Index: event.Index,
+							Delta: llm.Delta{
+								ToolCalls: []llm.DeltaToolCall{
+									{
+										Index: event.Index,
+										Function: llm.DeltaFunction{
+											Arguments: event.Delta.PartialJSON,
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+			}
+		}
+	case "content_block_start":
+		if event.ContentBlock != nil {
+			// 工具调用开始
+			if event.ContentBlock.Type == "tool_use" {
+				return &llm.StreamEvent{
+					ID:    "",
+					Model: p.model,
+					Choices: []struct {
+						Index        int       `json:"index"`
+						Delta        llm.Delta `json:"delta"`
+						FinishReason string    `json:"finish_reason"`
+					}{
+						{
+							Index: event.Index,
+							Delta: llm.Delta{
+								ToolCalls: []llm.DeltaToolCall{
+									{
+										Index: event.Index,
+										ID:    event.ContentBlock.ID,
+										Type:  "function",
+										Function: llm.DeltaFunction{
+											Name: event.ContentBlock.Name,
+										},
+									},
+								},
+							},
+						},
+					},
+				}
 			}
 		}
 	case "message_start":

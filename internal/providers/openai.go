@@ -110,6 +110,13 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *llm.Request) (<-chan l
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
+	// 检查 HTTP 状态码
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		resp.RawBody().Close()
+		close(eventChan)
+		return nil, fmt.Errorf("API error: status=%d", resp.StatusCode())
+	}
+
 	go func() {
 		defer close(eventChan)
 		defer resp.RawBody().Close()

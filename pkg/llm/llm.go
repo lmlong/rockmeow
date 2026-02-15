@@ -86,9 +86,23 @@ type StreamEvent struct {
 
 // Delta 流式增量
 type Delta struct {
-	Role      string     `json:"role,omitempty"`
-	Content   string     `json:"content,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Role      string          `json:"role,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	ToolCalls []DeltaToolCall `json:"tool_calls,omitempty"`
+}
+
+// DeltaToolCall 流式增量中的工具调用（包含 index 字段）
+type DeltaToolCall struct {
+	Index    int           `json:"index"`
+	ID       string        `json:"id"`
+	Type     string        `json:"type"`
+	Function DeltaFunction `json:"function"`
+}
+
+// DeltaFunction 流式增量中的函数调用
+type DeltaFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // 流式时是字符串片段，需要累积
 }
 
 // ToMessage 将响应转换为消息

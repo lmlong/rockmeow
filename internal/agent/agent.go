@@ -3,7 +3,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +18,7 @@ import (
 	"github.com/lingguard/pkg/llm"
 	"github.com/lingguard/pkg/logger"
 	"github.com/lingguard/pkg/memory"
+	"github.com/lingguard/pkg/stream"
 )
 
 // Agent 核心代理结构
@@ -113,6 +116,23 @@ func (a *Agent) ProcessMessage(ctx context.Context, sessionID, userMessage strin
 
 	// 3. 执行代理循环
 	return a.runLoop(ctx, sessionID, messages)
+}
+
+// ProcessMessageStream 流式处理消息
+func (a *Agent) ProcessMessageStream(ctx context.Context, sessionID, userMessage string, callback stream.StreamCallback) error {
+	// 1. 获取或创建会话并添加用户消息
+	s := a.sessions.GetOrCreate(sessionID)
+	s.AddMessage("user", userMessage)
+
+	// 2. 构建上下文
+	messages, err := a.buildContext(sessionID)
+	if err != nil {
+		callback(stream.NewErrorEvent(fmt.Errorf("failed to build context: %w", err)))
+		return err
+	}
+
+	// 3. 执行流式代理循环
+	return a.runLoopStream(ctx, sessionID, messages, callback)
 }
 
 // buildContext 构建上下文
@@ -215,6 +235,140 @@ func (a *Agent) runLoop(ctx context.Context, sessionID string, messages []llm.Me
 	}
 
 	return "", fmt.Errorf("max iterations reached")
+}
+
+// runLoopStream 流式代理执行循环
+func (a *Agent) runLoopStream(ctx context.Context, sessionID string, messages []llm.Message, callback stream.StreamCallback) error {
+	iterations := 0
+	maxIterations := a.config.MaxToolIterations
+	if maxIterations <= 0 {
+		maxIterations = 10
+	}
+
+	for iterations < maxIterations {
+		iterations++
+
+		// 构建 LLM 请求
+		req := &llm.Request{
+			Model:    a.provider.Model(),
+			Messages: messages,
+			Tools:    a.toolRegistry.GetToolDefinitions(),
+			Stream:   true,
+		}
+
+		// 调用 LLM 流式接口
+		eventChan, err := a.provider.Stream(ctx, req)
+		if err != nil {
+			return fmt.Errorf("LLM stream call failed: %w", err)
+		}
+
+		// 累积响应内容
+		var contentBuilder strings.Builder
+		// 用于累积流式工具调用（按 index 组织）
+		toolCallsAccumulator := make(map[int]*llm.ToolCall)
+
+		// 处理流式事件
+		for event := range eventChan {
+			if len(event.Choices) == 0 {
+				continue
+			}
+
+			choice := event.Choices[0]
+			delta := choice.Delta
+
+			// 累积文本内容
+			if delta.Content != "" {
+				contentBuilder.WriteString(delta.Content)
+				callback(stream.NewTextEvent(delta.Content))
+			}
+
+			// 累积工具调用
+			for _, dtc := range delta.ToolCalls {
+				idx := dtc.Index
+				if existing, ok := toolCallsAccumulator[idx]; ok {
+					// 累积参数（字符串拼接）
+					existing.Function.Arguments = append(existing.Function.Arguments, []byte(dtc.Function.Arguments)...)
+				} else {
+					// 新工具调用
+					toolCallsAccumulator[idx] = &llm.ToolCall{
+						ID:   dtc.ID,
+						Type: dtc.Type,
+						Function: llm.FunctionCall{
+							Name:      dtc.Function.Name,
+							Arguments: json.RawMessage(dtc.Function.Arguments),
+						},
+					}
+				}
+			}
+		}
+
+		// 将累积的工具调用转换为数组（按 index 排序）
+		// 注意：index 可能不从 0 开始（例如 thinking block 是 0，tool_use 是 1）
+		var toolCalls []llm.ToolCall
+		maxIndex := 0
+		for idx := range toolCallsAccumulator {
+			if idx > maxIndex {
+				maxIndex = idx
+			}
+		}
+		for i := 0; i <= maxIndex; i++ {
+			if tc, ok := toolCallsAccumulator[i]; ok {
+				toolCalls = append(toolCalls, *tc)
+			}
+		}
+
+		// 构建助手消息
+		assistantContent := contentBuilder.String()
+		assistantMsg := llm.Message{
+			Role:      "assistant",
+			Content:   assistantContent,
+			ToolCalls: toolCalls,
+		}
+
+		// 存储助手消息到会话
+		s := a.sessions.GetOrCreate(sessionID)
+		if assistantContent != "" || len(toolCalls) > 0 {
+			s.AddMessage("assistant", assistantContent)
+		}
+
+		// 检查是否有工具调用
+		if len(toolCalls) == 0 {
+			callback(stream.NewDoneEvent())
+			return nil
+		}
+
+		// 添加助手消息到历史
+		messages = append(messages, assistantMsg)
+
+		// 执行工具调用
+		for _, tc := range toolCalls {
+			// 发送工具开始事件
+			callback(stream.NewToolStartEvent(tc.Function.Name))
+
+			// 执行工具
+			result, err := a.executeTool(ctx, &tc)
+
+			// 发送工具结束事件
+			callback(stream.NewToolEndEvent(tc.Function.Name, result, err))
+
+			var resultStr string
+			if err != nil {
+				resultStr = fmt.Sprintf("Error: %s", err)
+			} else {
+				resultStr = result
+			}
+
+			// 添加工具结果到消息
+			toolMsg := llm.Message{
+				Role:       "tool",
+				Content:    resultStr,
+				ToolCallID: tc.ID,
+			}
+			messages = append(messages, toolMsg)
+		}
+	}
+
+	return fmt.Errorf("max iterations reached")
 }
 
 // executeTool 执行工具

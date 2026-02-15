@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/lingguard/internal/agent"
+	"github.com/lingguard/pkg/stream"
 )
 
 // AgentAdapter 将 Channel 消息转发给 Agent
@@ -19,4 +20,9 @@ func NewAgentAdapter(ag *agent.Agent) *AgentAdapter {
 // HandleMessage 实现 MessageHandler 接口
 func (a *AgentAdapter) HandleMessage(ctx context.Context, msg *Message) (string, error) {
 	return a.agent.ProcessMessage(ctx, msg.SessionID, msg.Content)
+}
+
+// HandleMessageStream 实现 StreamingMessageHandler 接口
+func (a *AgentAdapter) HandleMessageStream(ctx context.Context, msg *Message, callback stream.StreamCallback) error {
+	return a.agent.ProcessMessageStream(ctx, msg.SessionID, msg.Content, callback)
 }

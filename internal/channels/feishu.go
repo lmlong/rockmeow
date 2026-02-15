@@ -17,6 +17,7 @@ import (
 
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/pkg/logger"
+	"github.com/lingguard/pkg/stream"
 )
 
 // Message type display mapping for non-text messages
@@ -30,13 +31,14 @@ var msgTypeMap = map[string]string{
 
 // FeishuChannel 飞书 WebSocket 渠道
 type FeishuChannel struct {
-	cfg      *config.FeishuConfig
-	client   *lark.Client
-	wsClient *larkws.Client
-	handler  MessageHandler
-	mu       sync.RWMutex
-	running  bool
-	allowMap map[string]bool
+	cfg              *config.FeishuConfig
+	client           *lark.Client
+	wsClient         *larkws.Client
+	handler          MessageHandler
+	streamingHandler StreamingMessageHandler
+	mu               sync.RWMutex
+	running          bool
+	allowMap         map[string]bool
 
 	// Message deduplication
 	processedMsgs sync.Map // map[string]time.Time
@@ -53,11 +55,16 @@ func NewFeishuChannel(cfg *config.FeishuConfig, handler MessageHandler) *FeishuC
 	for _, id := range cfg.AllowFrom {
 		allowMap[id] = true
 	}
-	return &FeishuChannel{
+	fc := &FeishuChannel{
 		cfg:      cfg,
 		handler:  handler,
 		allowMap: allowMap,
 	}
+	// 检查是否实现了流式处理器接口
+	if sh, ok := handler.(StreamingMessageHandler); ok {
+		fc.streamingHandler = sh
+	}
+	return fc
 }
 
 // Name 返回渠道名称
@@ -217,7 +224,12 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 
 	logger.Debug("Received message from %s (chat_type=%s): %s", senderID, chatType, channelMsg.Content)
 
-	// Call handler
+	// 检查是否支持流式处理
+	if f.streamingHandler != nil {
+		return f.handleMessageStream(ctx, channelMsg, replyTo)
+	}
+
+	// Call handler (non-streaming fallback)
 	reply, err := f.handler.HandleMessage(ctx, channelMsg)
 	if err != nil {
 		logger.Error("Handler error: %v", err)
@@ -229,6 +241,78 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 		return f.sendReply(ctx, replyTo, reply)
 	}
 	return nil
+}
+
+// handleMessageStream 流式处理消息
+func (f *FeishuChannel) handleMessageStream(ctx context.Context, msg *Message, replyTo string) error {
+	var contentBuilder strings.Builder
+	var messageID string
+	var lastUpdate time.Time
+	updateInterval := 500 * time.Millisecond // 最小更新间隔
+
+	err := f.streamingHandler.HandleMessageStream(ctx, msg, func(event stream.StreamEvent) {
+		switch event.Type {
+		case stream.EventText:
+			contentBuilder.WriteString(event.Content)
+
+			// 节流更新：避免过于频繁调用 API
+			now := time.Now()
+			if now.Sub(lastUpdate) < updateInterval {
+				return
+			}
+			lastUpdate = now
+
+			// 更新或创建消息
+			content := contentBuilder.String()
+			if content != "" {
+				if messageID == "" {
+					// 发送初始消息
+					if id, err := f.sendReplyAsync(ctx, replyTo, content); err == nil {
+						messageID = id
+					}
+				} else {
+					// 更新消息
+					f.updateReply(ctx, messageID, content)
+				}
+			}
+
+		case stream.EventToolStart:
+			// 工具开始时更新消息显示工具执行状态
+			toolContent := contentBuilder.String() + fmt.Sprintf("\n\n⚙️ 正在执行工具: %s...", event.ToolName)
+			if messageID == "" {
+				if id, err := f.sendReplyAsync(ctx, replyTo, toolContent); err == nil {
+					messageID = id
+				}
+			} else {
+				f.updateReply(ctx, messageID, toolContent)
+			}
+
+		case stream.EventToolEnd:
+			// 工具结束时可以显示结果摘要（可选）
+
+		case stream.EventDone:
+			// 最终更新
+			content := contentBuilder.String()
+			if content != "" {
+				if messageID == "" {
+					f.sendReply(ctx, replyTo, content)
+				} else {
+					f.updateReply(ctx, messageID, content)
+				}
+			}
+
+		case stream.EventError:
+			logger.Error("Stream error: %v", event.Error)
+			errorContent := contentBuilder.String() + fmt.Sprintf("\n\n❌ 错误: %s", event.Error.Error())
+			if messageID == "" {
+				f.sendReply(ctx, replyTo, errorContent)
+			} else {
+				f.updateReply(ctx, messageID, errorContent)
+			}
+		}
+	})
+
+	return err
 }
 
 // addReaction 添加表情反应
@@ -311,6 +395,106 @@ func (f *FeishuChannel) sendReply(ctx context.Context, receiveID, content string
 	}
 
 	logger.Debug("Reply sent successfully to %s", receiveID)
+	return nil
+}
+
+// sendReplyAsync 发送回复消息并返回消息ID (用于流式更新)
+func (f *FeishuChannel) sendReplyAsync(ctx context.Context, receiveID, content string) (string, error) {
+	if receiveID == "" {
+		return "", fmt.Errorf("receive_id is empty")
+	}
+
+	// Determine receive_id_type based on ID format
+	receiveIDType := larkim.ReceiveIdTypeOpenId
+	if strings.HasPrefix(receiveID, "oc_") {
+		receiveIDType = larkim.ReceiveIdTypeChatId
+	}
+
+	// Build interactive card with markdown support
+	card := map[string]any{
+		"config": map[string]any{
+			"wide_screen_mode": true,
+		},
+		"elements": []map[string]any{
+			{
+				"tag":     "markdown",
+				"content": content,
+			},
+		},
+	}
+
+	cardJSON, err := json.Marshal(card)
+	if err != nil {
+		return "", fmt.Errorf("marshal card: %w", err)
+	}
+
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(receiveIDType).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(receiveID).
+			MsgType(larkim.MsgTypeInteractive).
+			Content(string(cardJSON)).
+			Build()).
+		Build()
+
+	resp, err := f.client.Im.Message.Create(ctx, req)
+	if err != nil {
+		logger.Error("Failed to send reply: %v", err)
+		return "", err
+	}
+
+	if resp.Code != 0 {
+		logger.Error("Failed to send reply: code=%d, msg=%s", resp.Code, resp.Msg)
+		return "", fmt.Errorf("send message failed: %s", resp.Msg)
+	}
+
+	logger.Debug("Reply sent successfully to %s, message_id=%s", receiveID, safeString(resp.Data.MessageId))
+	return safeString(resp.Data.MessageId), nil
+}
+
+// updateReply 更新已发送的消息 (用于流式更新)
+func (f *FeishuChannel) updateReply(ctx context.Context, messageID, content string) error {
+	if messageID == "" {
+		return fmt.Errorf("message_id is empty")
+	}
+
+	// Build interactive card with markdown support
+	card := map[string]any{
+		"config": map[string]any{
+			"wide_screen_mode": true,
+		},
+		"elements": []map[string]any{
+			{
+				"tag":     "markdown",
+				"content": content,
+			},
+		},
+	}
+
+	cardJSON, err := json.Marshal(card)
+	if err != nil {
+		return fmt.Errorf("marshal card: %w", err)
+	}
+
+	req := larkim.NewPatchMessageReqBuilder().
+		MessageId(messageID).
+		Body(larkim.NewPatchMessageReqBodyBuilder().
+			Content(string(cardJSON)).
+			Build()).
+		Build()
+
+	resp, err := f.client.Im.Message.Patch(ctx, req)
+	if err != nil {
+		logger.Debug("Failed to update reply: %v", err)
+		return err
+	}
+
+	if resp.Code != 0 {
+		logger.Debug("Failed to update reply: code=%d, msg=%s", resp.Code, resp.Msg)
+		return fmt.Errorf("update message failed: %s", resp.Msg)
+	}
+
+	logger.Debug("Reply updated successfully, message_id=%s", messageID)
 	return nil
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/lingguard/internal/providers"
 	"github.com/lingguard/internal/skills"
 	"github.com/lingguard/internal/tools"
+	"github.com/lingguard/pkg/stream"
 	"github.com/spf13/cobra"
 )
 
@@ -37,13 +38,27 @@ var agentCmd = &cobra.Command{
 		ctx := context.Background()
 
 		if message != "" {
-			// 单次消息模式
-			response, err := ag.ProcessMessage(ctx, "cli-session", message)
+			// 单次消息模式 (使用流式输出)
+			err := ag.ProcessMessageStream(ctx, "cli-session", message, func(event stream.StreamEvent) {
+				switch event.Type {
+				case stream.EventText:
+					fmt.Print(event.Content)
+				case stream.EventToolStart:
+					fmt.Printf("\n⚙️ 执行工具: %s...\n", event.ToolName)
+				case stream.EventToolEnd:
+					if event.ToolError != "" {
+						fmt.Printf("❌ 工具执行失败: %s\n", event.ToolError)
+					}
+				case stream.EventDone:
+					fmt.Println()
+				case stream.EventError:
+					fmt.Fprintf(os.Stderr, "\n❌ 错误: %v\n", event.Error)
+				}
+			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Println(response)
 		} else {
 			// 交互模式
 			runInteractiveMode(ctx, ag)
@@ -148,14 +163,32 @@ func runInteractiveMode(ctx context.Context, ag *agent.Agent) {
 			break
 		}
 
-		response, err := ag.ProcessMessage(ctx, sessionID, input)
+		// 使用流式输出
+		fmt.Println()
+		err := ag.ProcessMessageStream(ctx, sessionID, input, func(event stream.StreamEvent) {
+			switch event.Type {
+			case stream.EventText:
+				// 实时打印增量文本
+				fmt.Print(event.Content)
+			case stream.EventToolStart:
+				// 显示工具执行状态
+				fmt.Printf("\n⚙️ 执行工具: %s...\n", event.ToolName)
+			case stream.EventToolEnd:
+				// 工具执行完成
+				if event.ToolError != "" {
+					fmt.Printf("❌ 工具执行失败: %s\n", event.ToolError)
+				}
+			case stream.EventDone:
+				// 完成后换行
+				fmt.Println()
+			case stream.EventError:
+				fmt.Fprintf(os.Stderr, "\n❌ 错误: %v\n", event.Error)
+			}
+		})
+
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			continue
 		}
-
-		fmt.Println()
-		fmt.Println(response)
 		fmt.Println()
 	}
 }
