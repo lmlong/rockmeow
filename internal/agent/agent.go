@@ -23,13 +23,15 @@ import (
 
 // Agent 核心代理结构
 type Agent struct {
-	id           string
-	provider     providers.Provider
-	toolRegistry *tools.Registry
-	sessions     *session.Manager
-	skillsMgr    *skills.Manager
-	subagentMgr  *subagent.SubagentManager
-	config       *config.AgentsConfig
+	id            string
+	provider      providers.Provider
+	toolRegistry  *tools.Registry
+	sessions      *session.Manager
+	skillsMgr     *skills.Manager
+	subagentMgr   *subagent.SubagentManager
+	config        *config.AgentsConfig
+	memoryStore   *memory.FileStore      // 文件持久化存储（参考 nanobot）
+	memoryBuilder *memory.ContextBuilder // 记忆上下文构建器
 }
 
 // NewAgent 创建新代理
@@ -41,13 +43,40 @@ func NewAgent(cfg *config.AgentsConfig, provider providers.Provider, skillsLoade
 
 	toolRegistry := tools.NewRegistry()
 
+	// 初始化文件持久化存储（参考 nanobot）
+	var memStore *memory.FileStore
+	var memBuilder *memory.ContextBuilder
+	var sessionStore memory.Store
+
+	if cfg.MemoryConfig != nil && cfg.MemoryConfig.Enabled {
+		// 使用文件存储
+		memDir := cfg.MemoryConfig.MemoryDir
+		if memDir == "" {
+			memDir = "~/.lingguard/memory"
+		}
+		memStore = memory.NewFileStore(memDir)
+		if err := memStore.Init(); err != nil {
+			logger.Warn("Failed to init file memory store: %v, using in-memory", err)
+			sessionStore = memory.NewMemoryStore()
+		} else {
+			sessionStore = memStore
+			memBuilder = memory.NewContextBuilder(memStore)
+			logger.Info("File-based memory store initialized: %s", memDir)
+		}
+	} else {
+		// 使用内存存储
+		sessionStore = memory.NewMemoryStore()
+	}
+
 	agent := &Agent{
-		id:           generateID(),
-		provider:     provider,
-		toolRegistry: toolRegistry,
-		sessions:     session.NewManager(memory.NewMemoryStore(), cfg.MemoryWindow),
-		skillsMgr:    skillsMgr,
-		config:       cfg,
+		id:            generateID(),
+		provider:      provider,
+		toolRegistry:  toolRegistry,
+		sessions:      session.NewManager(sessionStore, cfg.MemoryWindow),
+		skillsMgr:     skillsMgr,
+		config:        cfg,
+		memoryStore:   memStore,
+		memoryBuilder: memBuilder,
 	}
 
 	// 初始化子代理管理器
@@ -74,6 +103,27 @@ func (a *Agent) RegisterSubagentTools() {
 		a.toolRegistry.Register(subagent.NewTaskTool(a.subagentMgr))
 		a.toolRegistry.Register(subagent.NewTaskStatusTool(a.subagentMgr))
 	}
+}
+
+// RegisterMemoryTool 注册记忆工具
+func (a *Agent) RegisterMemoryTool() {
+	if a.memoryStore != nil {
+		memTool := tools.NewMemoryToolFromStore(a.memoryStore)
+		a.toolRegistry.Register(memTool)
+	}
+}
+
+// RecordEvent 记录事件到历史（参考 nanobot）
+func (a *Agent) RecordEvent(eventType, summary string, details map[string]string) error {
+	if a.memoryStore == nil {
+		return nil
+	}
+	return a.memoryStore.AddHistory(eventType, summary, details)
+}
+
+// GetMemoryStore 获取记忆存储
+func (a *Agent) GetMemoryStore() *memory.FileStore {
+	return a.memoryStore
 }
 
 // SubagentManager 返回子代理管理器
@@ -141,6 +191,24 @@ func (a *Agent) buildContext(sessionID string) ([]llm.Message, error) {
 
 	// 构建系统提示
 	systemPrompt := a.config.SystemPrompt
+
+	// 添加记忆上下文（参考 nanobot）
+	if a.memoryBuilder != nil {
+		recentDays := 3
+		if a.config.MemoryConfig != nil && a.config.MemoryConfig.RecentDays > 0 {
+			recentDays = a.config.MemoryConfig.RecentDays
+		}
+		memContext, err := a.memoryBuilder.BuildContext(recentDays)
+		if err == nil && memContext != "" {
+			if systemPrompt != "" {
+				systemPrompt = systemPrompt + "\n\n" + memContext
+			} else {
+				systemPrompt = memContext
+			}
+		}
+	}
+
+	// 添加技能上下文
 	if a.skillsMgr != nil {
 		skillsContext := a.skillsMgr.GetSkillsContext()
 		if skillsContext != "" {

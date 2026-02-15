@@ -25,8 +25,20 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("Expected Provider=openai, got %s", cfg.Agents.Provider)
 	}
 
-	if cfg.Storage.Type != "sqlite" {
-		t.Errorf("Expected Storage.Type=sqlite, got %s", cfg.Storage.Type)
+	if cfg.Storage.Type != "file" {
+		t.Errorf("Expected Storage.Type=file, got %s", cfg.Storage.Type)
+	}
+
+	// 验证默认记忆配置
+	if cfg.Agents.MemoryConfig == nil {
+		t.Error("Expected MemoryConfig to be non-nil")
+	} else {
+		if !cfg.Agents.MemoryConfig.Enabled {
+			t.Error("Expected MemoryConfig.Enabled=true")
+		}
+		if cfg.Agents.MemoryConfig.MemoryDir != "~/.lingguard/memory" {
+			t.Errorf("Expected MemoryDir=~/.lingguard/memory, got %s", cfg.Agents.MemoryConfig.MemoryDir)
+		}
 	}
 
 	if cfg.Logging.Level != "info" {

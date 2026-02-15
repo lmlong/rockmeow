@@ -152,6 +152,9 @@ func createAgent(cfg *config.Config) (*agent.Agent, error) {
 	// 8. 注册子代理工具（支持后台任务）
 	ag.RegisterSubagentTools()
 
+	// 9. 注册记忆工具（参考 nanobot）
+	ag.RegisterMemoryTool()
+
 	return ag, nil
 }
 

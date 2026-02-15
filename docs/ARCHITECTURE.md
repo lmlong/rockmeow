@@ -65,13 +65,14 @@
 | **核心功能** ||||
 | Agent Loop | ✅ | ✅ | 核心处理循环 |
 | 会话管理 | ✅ | ✅ | 多会话支持 |
-| 记忆系统 | ✅ (内存) | ✅ | nanobot 支持持久化 |
+| 记忆系统 | ✅ (文件持久化) | ✅ | 两者都支持 MEMORY.md 方案 |
 | 工具系统 | ✅ | ✅ | Shell, File 等 |
 | 技能系统 | ✅ (渐进式) | ✅ | LingGuard 支持按需加载 |
 | Provider 自动匹配 | ✅ | ✅ | 根据模型名自动选择 |
 | **高级功能** ||||
 | 定时任务 (Cron) | ❌ | ✅ | nanobot 支持 |
 | 子代理 (Subagent) | ✅ | ✅ | 两者都支持后台任务 |
+| 流式响应 | ✅ | ✅ | 两者都支持实时输出 |
 | Agent Social Network | ❌ | ✅ | nanobot 支持 Moltbook 等 |
 | 语音转写 | ❌ | ✅ | nanobot 支持 Groq Whisper |
 | Docker 支持 | ❌ | ✅ | nanobot 提供镜像 |
@@ -201,6 +202,27 @@
                               响应 ──▶ Feishu ──▶ 用户
 ```
 
+### 3.3 流式响应架构
+
+```
+用户消息 ──▶ Channel ──▶ HandleMessageStream() ──▶ Agent.ProcessMessageStream()
+                                                         │
+                                                         ▼
+                                                  Provider.Stream()
+                                                         │
+                         ┌───────────────────────────────┼───────────────────┐
+                         ▼                               ▼                   ▼
+                   StreamEvent(text)            StreamEvent(tool_start)  StreamEvent(done)
+                         │                               │                   │
+                         └───────────────────────────────┼───────────────────┘
+                                                         ▼
+                                              StreamCallback(event)
+                                                         │
+                         ┌───────────────────────────────┼───────────────────┐
+                         ▼                               ▼                   ▼
+                   CLI: fmt.Print()            飞书: sendReplyAsync()   飞书: updateReply()
+```
+
 ---
 
 ## 4. 核心模块设计
@@ -255,24 +277,27 @@ lingguard/
 ├── pkg/
 │   ├── llm/                # LLM客户端封装 ✅
 │   │   └── llm.go          # 通用类型
+│   ├── stream/             # 流式响应类型 ✅
+│   │   └── stream.go       # StreamEvent, StreamCallback
 │   ├── memory/             # 记忆系统 ✅
-│   │   └── memory.go       # 内存存储
+│   │   ├── memory.go       # 内存存储（MemoryStore）
+│   │   ├── file_store.go   # 文件持久化存储（参考 nanobot）
+│   │   └── context_builder.go # 记忆上下文构建器
 │   └── logger/             # 日志 ✅
 │       └── logger.go
-├── skills/                 # 内置技能目录 ✅
-│   └── builtin/
-│       ├── git-workflow/   # Git工作流技能
-│       │   ├── SKILL.md
-│       │   ├── examples.md
-│       │   └── reference.md
-│       ├── code-review/    # 代码审查技能
-│       │   └── SKILL.md
-│       ├── file/           # 文件操作技能
-│       │   └── SKILL.md
-│       ├── system/         # 系统操作技能
-│       │   └── SKILL.md
-│       └── weather/        # 天气查询技能
-│           └── SKILL.md
+├── skills/                 # 技能目录（支持多路径加载）✅
+│   ├── file/               # 文件操作技能
+│   │   └── SKILL.md
+│   ├── git-workflow/       # Git工作流技能
+│   │   ├── SKILL.md
+│   │   ├── examples.md
+│   │   └── reference.md
+│   ├── code-review/        # 代码审查技能
+│   │   └── SKILL.md
+│   ├── system/             # 系统操作技能
+│   │   └── SKILL.md
+│   └── weather/            # 天气查询技能
+│       └── SKILL.md
 ├── configs/
 │   ├── config.json         # 主配置
 │   └── config.example.json # 配置示例
@@ -426,7 +451,10 @@ func (s *Session) Clear()
 
 package channels
 
-import "context"
+import (
+    "context"
+    "github.com/lingguard/pkg/stream"
+)
 
 // Message 表示从消息平台接收的消息
 type Message struct {
@@ -439,6 +467,13 @@ type Message struct {
 // MessageHandler 处理消息的接口 (由 Agent 适配器实现)
 type MessageHandler interface {
     HandleMessage(ctx context.Context, msg *Message) (string, error)
+}
+
+// StreamingMessageHandler 流式处理消息的接口
+type StreamingMessageHandler interface {
+    MessageHandler
+    // HandleMessageStream 流式处理消息
+    HandleMessageStream(ctx context.Context, msg *Message, callback stream.StreamCallback) error
 }
 
 // Channel 表示一个消息渠道
@@ -549,7 +584,209 @@ func (a *Agent) runLoop(ctx context.Context, sessionID string, messages []llm.Me
 
     return "", fmt.Errorf("max iterations reached")
 }
+
+// ProcessMessageStream 流式处理消息
+func (a *Agent) ProcessMessageStream(ctx context.Context, sessionID, userMessage string, callback stream.StreamCallback) error {
+    // 1. 获取或创建会话并添加用户消息
+    s := a.sessions.GetOrCreate(sessionID)
+    s.AddMessage("user", userMessage)
+
+    // 2. 构建上下文
+    messages, err := a.buildContext(sessionID)
+    if err != nil {
+        callback(stream.NewErrorEvent(err))
+        return err
+    }
+
+    // 3. 执行流式代理循环
+    return a.runLoopStream(ctx, sessionID, messages, callback)
+}
 ```
+
+### 4.5 流式响应系统
+
+#### 4.5.1 架构概览
+
+```
+Before (同步):
+Channel -> Handler.HandleMessage() -> Agent.ProcessMessage() -> Provider.Complete() -> string
+
+After (流式):
+Channel -> Handler.HandleMessageStream() -> Agent.ProcessMessageStream() -> Provider.Stream()
+         |                                                              |
+         +------------------ callback <---------------------------------+
+```
+
+#### 4.5.2 流式事件类型
+
+```go
+// pkg/stream/stream.go
+
+// StreamEventType 流式事件类型
+type StreamEventType string
+
+const (
+    EventText      StreamEventType = "text"       // 文本增量内容
+    EventToolStart StreamEventType = "tool_start" // 工具开始执行
+    EventToolEnd   StreamEventType = "tool_end"   // 工具执行完成
+    EventDone      StreamEventType = "done"       // 流式响应完成
+    EventError     StreamEventType = "error"      // 发生错误
+)
+
+// StreamEvent 流式事件
+type StreamEvent struct {
+    Type       StreamEventType
+    Content    string // 增量文本内容 (EventText)
+    ToolName   string // 工具名称 (EventToolStart/EventToolEnd)
+    ToolResult string // 工具执行结果 (EventToolEnd)
+    ToolError  string // 工具错误信息
+    Error      error  // 错误信息 (EventError)
+}
+
+// StreamCallback 流式响应回调函数
+type StreamCallback func(event StreamEvent)
+```
+
+#### 4.5.3 流式 LLM 类型
+
+```go
+// pkg/llm/llm.go
+
+// Delta 流式增量
+type Delta struct {
+    Role      string          `json:"role,omitempty"`
+    Content   string          `json:"content,omitempty"`
+    ToolCalls []DeltaToolCall `json:"tool_calls,omitempty"`
+}
+
+// DeltaToolCall 流式增量中的工具调用（包含 index 字段）
+type DeltaToolCall struct {
+    Index    int           `json:"index"`
+    ID       string        `json:"id"`
+    Type     string        `json:"type"`
+    Function DeltaFunction `json:"function"`
+}
+
+// DeltaFunction 流式增量中的函数调用
+type DeltaFunction struct {
+    Name      string `json:"name"`
+    Arguments string `json:"arguments"` // 流式时是字符串片段，需要累积
+}
+```
+
+#### 4.5.4 飞书流式更新
+
+```go
+// internal/channels/feishu.go
+
+// handleMessageStream 流式处理消息
+func (f *FeishuChannel) handleMessageStream(ctx context.Context, msg *Message, replyTo string) error {
+    var contentBuilder strings.Builder
+    var messageID string
+
+    return f.streamingHandler.HandleMessageStream(ctx, msg, func(event stream.StreamEvent) {
+        switch event.Type {
+        case stream.EventText:
+            contentBuilder.WriteString(event.Content)
+            // 节流更新消息
+            if messageID == "" {
+                messageID, _ = f.sendReplyAsync(ctx, replyTo, contentBuilder.String())
+            } else {
+                f.updateReply(ctx, messageID, contentBuilder.String())
+            }
+        case stream.EventToolStart:
+            // 显示工具执行状态
+        case stream.EventDone:
+            // 最终更新消息
+        }
+    })
+}
+
+// updateReply 更新已发送的消息 (使用 PatchMessage API)
+func (f *FeishuChannel) updateReply(ctx context.Context, messageID, content string) error
+```
+
+#### 4.5.5 CLI 流式输出
+
+```go
+// cmd/cli/agent.go
+
+err := ag.ProcessMessageStream(ctx, sessionID, input, func(event stream.StreamEvent) {
+    switch event.Type {
+    case stream.EventText:
+        fmt.Print(event.Content)
+    case stream.EventToolStart:
+        fmt.Printf("\n⚙️ 执行工具: %s...\n", event.ToolName)
+    case stream.EventDone:
+        fmt.Println()
+    }
+})
+```
+
+### 4.6 配置文件加载
+
+#### 4.6.1 加载优先级
+
+```go
+// cmd/lingguard/main.go
+
+configPath := os.Getenv("LINGGUARD_CONFIG")
+if configPath == "" {
+    // 1. 优先从本地 configs 目录加载
+    localConfig := filepath.Join("configs", "config.json")
+    if _, err := os.Stat(localConfig); err == nil {
+        configPath = localConfig
+    } else {
+        // 2. 如果本地不存在，从用户主目录加载
+        home, _ := os.UserHomeDir()
+        configPath = filepath.Join(home, ".lingguard", "config.json")
+    }
+}
+```
+
+**配置文件查找顺序：**
+1. 环境变量 `LINGGUARD_CONFIG`
+2. `./configs/config.json`（本地）
+3. `~/.lingguard/config.json`（用户主目录）
+
+### 4.7 技能目录加载
+
+#### 4.7.1 多路径支持
+
+```go
+// internal/skills/loader.go
+
+type Loader struct {
+    builtinDirs []string // 支持多个内置技能目录
+    workspace   string
+}
+
+func NewLoader(builtinDirs []string, workspace string) *Loader
+```
+
+#### 4.7.2 自动发现技能目录
+
+```go
+// cmd/cli/agent.go
+
+// 候选路径（按优先级排序）
+candidatePaths := []string{
+    // 1. 相对于可执行文件的 skills 目录
+    filepath.Join(filepath.Dir(execPath), "skills"),
+    // 2. 相对于可执行文件的上级目录
+    filepath.Join(filepath.Dir(execPath), "..", "skills"),
+    // 3. 用户主目录下的 .lingguard/skills
+    filepath.Join(home, ".lingguard", "skills"),
+    // 4. 当前工作目录下的 skills
+    filepath.Join(cwd, "skills"),
+}
+```
+
+**技能目录查找顺序：**
+1. 可执行文件所在目录的 `skills/`
+2. 可执行文件上级目录的 `skills/`
+3. `~/.lingguard/skills/`
+4. 当前工作目录的 `skills/`
 
 ### 4.4 子代理系统 (Subagent)
 
@@ -737,6 +974,108 @@ Agent: [调用 task_status 工具]
 | 工具隔离 | 运行时过滤 | 预配置白名单 |
 | 结果投递 | 自动注入会话 | 主动查询 |
 
+### 4.8 文件持久化记忆系统（参考 nanobot）
+
+LingGuard 实现了与 nanobot 相同的文件持久化方案，使用简单的 Markdown 文件存储记忆。
+
+#### 4.8.1 核心文件
+
+| 文件 | 用途 | 说明 |
+|------|------|------|
+| `MEMORY.md` | 长期记忆 | 用户偏好、项目上下文、重要事实 |
+| `HISTORY.md` | 事件日志 | 时间戳记录的对话和操作历史 |
+| `YYYY-MM-DD.md` | 每日日志 | 当天的事件记录 |
+
+#### 4.8.2 文件结构
+
+**MEMORY.md 结构：**
+```markdown
+# Memory
+
+This file stores long-term memories and important facts.
+
+## User Preferences
+<!-- 用户偏好设置 -->
+- [2026-02-15 13:03] User prefers dark mode
+- [2026-02-15 13:05] User prefers Go over Python
+
+## Project Context
+<!-- 项目上下文信息 -->
+- [2026-02-15 14:00] Project uses Go 1.23+
+
+## Important Facts
+<!-- 重要事实记录 -->
+```
+
+**HISTORY.md 结构：**
+```markdown
+# History
+
+This file records events and conversations in chronological order.
+
+---
+
+### [2026-02-15 13:05:18] Message/user
+User greeted and started conversation
+- session_id: cli-interactive
+- role: user
+
+---
+```
+
+#### 4.8.3 配置项
+
+```json
+{
+  "agents": {
+    "memory": {
+      "enabled": true,
+      "memoryDir": "~/.lingguard/memory",
+      "recentDays": 3,
+      "maxHistoryLines": 1000
+    }
+  }
+}
+```
+
+#### 4.8.4 Memory 工具
+
+Agent 可以使用 `memory` 工具主动记忆和回忆信息：
+
+```json
+// 记录长期记忆
+{"action": "remember", "category": "User Preferences", "fact": "User prefers dark mode"}
+
+// 搜索记忆
+{"action": "recall", "query": "user preferences"}
+
+// 记录事件到每日日志
+{"action": "log", "event": "Completed important task"}
+
+// 获取当前上下文
+{"action": "context"}
+```
+
+#### 4.8.5 检索方式
+
+- 使用 `grep` 命令搜索文本
+- **无** 向量数据库
+- **无** embedding 模型
+- **无** RAG 管道
+
+这与 nanobot 的 "Less is More" 哲学一致，用最简单的方案实现可靠的记忆功能。
+
+#### 4.8.6 与 nanobot 对比
+
+| 方面 | LingGuard | nanobot |
+|------|-----------|---------|
+| 存储格式 | Markdown 文件 | Markdown 文件 |
+| 长期记忆 | MEMORY.md | MEMORY.md |
+| 事件日志 | HISTORY.md | 事件日志 |
+| 每日日志 | YYYY-MM-DD.md | 每日笔记 |
+| 检索方式 | grep | grep |
+| 记忆工具 | memory 工具 | 内置函数 |
+
 ---
 
 ## 5. 配置示例
@@ -770,12 +1109,16 @@ Agent: [调用 task_status 工具]
   },
   "agents": {
     "workspace": "~/.lingguard/workspace",
-    "model": "glm",
-    "maxTokens": 8192,
-    "temperature": 0.7,
+    "provider": "glm",
     "maxToolIterations": 20,
     "memoryWindow": 50,
-    "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。"
+    "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。",
+    "memory": {
+      "enabled": true,
+      "memoryDir": "~/.lingguard/memory",
+      "recentDays": 3,
+      "maxHistoryLines": 1000
+    }
   },
   "channels": {
     "feishu": {
@@ -905,17 +1248,17 @@ Channels:
 | Skill 工具 | ✅ | tools/skill.go - 按需加载技能 |
 | 内置技能 | ✅ | git-workflow, code-review, file, system, weather |
 
-### Phase 4: 高级功能 (进行中)
+### Phase 4: 高级功能 ✅ (已完成)
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
 | 多渠道扩展 | ⏳ | Telegram, Discord, WhatsApp 等 |
-| 持久化存储 | ⏳ | PostgreSQL |
+| 文件持久化 | ✅ | MEMORY.md + HISTORY.md (参考 nanobot) |
 | 向量记忆 | ⏳ | Qdrant 集成 |
 | 定时任务 | ⏳ | scheduler/ 模块 (Cron) |
 | 多模态支持 | ⏳ | Vision |
 | 子代理 | ✅ | Subagent 后台任务 |
-| 流式响应 | ⏳ | SSE 支持 |
+| 流式响应 | ✅ | SSE 支持，飞书消息实时更新 |
 | Docker 支持 | ⏳ | 容器化部署 |
 
 ### Phase 5: 优化与扩展 (待实现)
@@ -974,16 +1317,34 @@ LingGuard 作为参考 nanobot 设计的 Go 语言实现，已实现以下核心
    - 默认注入摘要，按需加载
    - 支持 always=true 始终加载
    - 依赖检查机制
+   - 多目录加载（可执行文件目录 + ~/.lingguard/skills）
 
-4. **飞书 WebSocket 集成**
+4. **流式响应支持**
+   - 实时文本输出
+   - 工具执行状态显示
+   - 飞书消息实时更新（PatchMessage API）
+   - CLI 交互模式流式输出
+
+5. **文件持久化记忆系统**（参考 nanobot）
+   - MEMORY.md - 长期记忆存储（用户偏好、项目上下文、重要事实）
+   - HISTORY.md - 时间戳事件日志
+   - YYYY-MM-DD.md - 每日日志文件
+   - grep 搜索检索（无需向量数据库）
+   - Memory 工具支持 Agent 主动记忆和回忆
+
+6. **飞书 WebSocket 集成**
    - 无需公网 IP
    - 消息去重
    - Interactive Card 响应
    - 权限控制
 
-5. **安全沙箱**
+6. **安全沙箱**
    - 工作空间限制
    - 危险命令检测
+
+7. **配置管理**
+   - 多路径配置加载（本地 configs/ + ~/.lingguard/）
+   - 环境变量覆盖
 
 ### 10.2 与 nanobot 的主要差异
 
@@ -993,6 +1354,7 @@ LingGuard 作为参考 nanobot 设计的 Go 语言实现，已实现以下核心
 | **渠道** | 飞书 | 9+ 渠道 (Telegram, Discord, WhatsApp...) |
 | **定时任务** | ⏳ 待实现 | ✅ Cron 支持 |
 | **子代理** | ✅ 已实现 | ✅ 后台任务 |
+| **流式响应** | ✅ 已实现 | ✅ 支持 |
 | **部署** | 单二进制 | pip/uv 安装 |
 
 ### 10.3 适用场景
@@ -1010,9 +1372,8 @@ LingGuard 作为参考 nanobot 设计的 Go 语言实现，已实现以下核心
    - 持久化存储
 
 2. **优先级中**
-   - 子代理支持
    - 向量记忆
-   - 流式响应
+   - 多模态支持 (Vision)
 
 3. **优先级低**
    - Web 管理界面

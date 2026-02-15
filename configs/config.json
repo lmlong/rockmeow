@@ -1,9 +1,9 @@
 {
   "providers": {
-    "qwen": {
-      "apiKey": "sk-791d6c7cc3094af99290577b709b47e6",
-      "apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "model": "qwen3-max-2026-01-23",
+    "deepseek": {
+      "apiKey": "sk-xxx",
+      "apiBase": "https://api.deepseek.com/v1",
+      "model": "deepseek-chat",
       "temperature": 0.7,
       "maxTokens": 4096,
       "timeout": 60
@@ -18,7 +18,6 @@
     },
     "minimax": {
       "apiKey": "sk-cp-mpX09dQEHgHHOva2vEZ89_c-RUNXA4CrmTFViEMUD-f00iTziDBdEtPvEIqHqD1o_LHQFtfMp-EYIf25nYv-wBM34G0XIw1OeSMev1QVUjOR7__GI6lQXv4",
-      "groupId": "",
       "apiBase": "https://api.minimaxi.com/anthropic",
       "model": "MiniMax-M2.5",
       "temperature": 0.7,
@@ -33,40 +32,39 @@
       "maxTokens": 4096,
       "timeout": 60
     },
-    "deepseek": {
-      "apiKey": "sk-xxx",
-      "apiBase": "https://api.deepseek.com/v1",
-      "model": "deepseek-chat",
+    "qwen": {
+      "apiKey": "sk-791d6c7cc3094af99290577b709b47e6",
+      "apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen3-max-2026-01-23",
       "temperature": 0.7,
       "maxTokens": 4096,
       "timeout": 60
     }
   },
-
   "agents": {
     "workspace": "~/.lingguard/workspace",
     "provider": "glm",
     "maxToolIterations": 20,
     "memoryWindow": 50,
-    "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。"
+    "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。",
+    "memory": {
+      "enabled": true,
+      "memoryDir": "~/.lingguard/memory",
+      "recentDays": 3,
+      "maxHistoryLines": 1000
+    }
   },
-
   "channels": {
     "feishu": {
       "enabled": true,
       "appId": "cli_a904272b23b89cb3",
-      "appSecret": "9XxL2DnKzj82WTdPaKmzPj84btdqABya",
-      "encryptKey": "",
-      "verificationToken": "",
-      "allowFrom": []
+      "appSecret": "9XxL2DnKzj82WTdPaKmzPj84btdqABya"
     }
   },
-
   "tools": {
     "restrictToWorkspace": false,
     "workspace": "~/.lingguard/workspace"
   },
-
   "storage": {
     "type": "postgres",
     "host": "localhost",
@@ -75,9 +73,9 @@
     "username": "postgres",
     "password": "postgres",
     "sslmode": "disable",
-    "vectorDbUrl": "http://localhost:6333"
+    "vectorDbUrl": "http://localhost:6333",
+    "path": "~/.lingguard/data.db"
   },
-
   "logging": {
     "level": "info",
     "format": "text",

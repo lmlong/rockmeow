@@ -30,14 +30,23 @@ type ProviderConfig struct {
 
 // AgentsConfig 代理配置
 type AgentsConfig struct {
-	Workspace         string `json:"workspace"`
-	Provider          string `json:"provider"`          // 使用的 Provider 名称
-	MaxToolIterations int    `json:"maxToolIterations"` // 最大工具迭代次数
-	MemoryWindow      int    `json:"memoryWindow"`      // 历史消息窗口大小
-	SystemPrompt      string `json:"systemPrompt"`
-	SkillsBuiltinDir  string `json:"skillsBuiltinDir,omitempty"` // 内置技能目录
-	SkillsWorkspace   string `json:"skillsWorkspace,omitempty"`  // 工作区技能目录
+	Workspace         string        `json:"workspace"`
+	Provider          string        `json:"provider"`          // 使用的 Provider 名称
+	MaxToolIterations int           `json:"maxToolIterations"` // 最大工具迭代次数
+	MemoryWindow      int           `json:"memoryWindow"`      // 历史消息窗口大小
+	SystemPrompt      string        `json:"systemPrompt"`
+	SkillsBuiltinDir  string        `json:"skillsBuiltinDir,omitempty"` // 内置技能目录
+	SkillsWorkspace   string        `json:"skillsWorkspace,omitempty"`  // 工作区技能目录
+	MemoryConfig      *MemoryConfig `json:"memory,omitempty"`           // 记忆系统配置
 	// 注：Temperature 和 MaxTokens 从 Provider 配置中获取，避免重复
+}
+
+// MemoryConfig 记忆系统配置（参考 nanobot）
+type MemoryConfig struct {
+	Enabled         bool   `json:"enabled"`                   // 是否启用持久化记忆
+	MemoryDir       string `json:"memoryDir,omitempty"`       // 记忆目录路径，默认 ~/.lingguard/memory
+	RecentDays      int    `json:"recentDays,omitempty"`      // 加载最近几天的日志，默认 3
+	MaxHistoryLines int    `json:"maxHistoryLines,omitempty"` // 历史记录最大行数，默认 1000
 }
 
 // ChannelsConfig 渠道配置
@@ -91,6 +100,12 @@ func DefaultConfig() *Config {
 			MaxToolIterations: 20,
 			MemoryWindow:      50,
 			SystemPrompt:      "You are LingGuard, a helpful AI assistant.",
+			MemoryConfig: &MemoryConfig{
+				Enabled:         true,
+				MemoryDir:       "~/.lingguard/memory",
+				RecentDays:      3,
+				MaxHistoryLines: 1000,
+			},
 		},
 		Channels: ChannelsConfig{},
 		Tools: ToolsConfig{
@@ -98,8 +113,8 @@ func DefaultConfig() *Config {
 			Workspace:           "~/.lingguard/workspace",
 		},
 		Storage: StorageConfig{
-			Type: "sqlite",
-			Path: "~/.lingguard/data.db",
+			Type: "file", // 改为文件存储
+			Path: "~/.lingguard/memory",
 		},
 		Logging: LoggingConfig{
 			Level:  "info",
