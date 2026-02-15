@@ -63,7 +63,8 @@ func TestAgentRegisterTool(t *testing.T) {
 	agent := NewAgent(cfg, mockProvider, nil)
 
 	// 注册工具
-	agent.RegisterTool(tools.NewShellTool("", false))
+	wsMgr := tools.NewWorkspaceManager("", "")
+	agent.RegisterTool(tools.NewShellTool(wsMgr, false))
 
 	// 验证工具已注册
 	registryTools := agent.toolRegistry.List()

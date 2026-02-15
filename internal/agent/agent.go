@@ -23,6 +23,9 @@ import (
 	"github.com/lingguard/pkg/stream"
 )
 
+// ReflectPrompt 反思提示（参考 nanobot）
+const ReflectPrompt = "Reflect on the results and decide next steps."
+
 // Agent 核心代理结构
 type Agent struct {
 	id            string
@@ -309,6 +312,12 @@ func (a *Agent) runLoop(ctx context.Context, sessionID string, messages []llm.Me
 			}
 			messages = append(messages, toolMsg)
 		}
+
+		// 添加反思提示（参考 nanobot）
+		messages = append(messages, llm.Message{
+			Role:    "user",
+			Content: ReflectPrompt,
+		})
 	}
 
 	return "", fmt.Errorf("max iterations reached")
@@ -443,6 +452,12 @@ func (a *Agent) runLoopStream(ctx context.Context, sessionID string, messages []
 			}
 			messages = append(messages, toolMsg)
 		}
+
+		// 添加反思提示（参考 nanobot）
+		messages = append(messages, llm.Message{
+			Role:    "user",
+			Content: ReflectPrompt,
+		})
 	}
 
 	return fmt.Errorf("max iterations reached")
