@@ -9,9 +9,10 @@ import (
 
 	"github.com/lingguard/internal/cron"
 	"github.com/lingguard/pkg/logger"
+	"github.com/lingguard/pkg/utils"
 )
 
-// CronService 定时任务服务接口（用于工具调用）
+// CronService 定时任务服务接口
 type CronService interface {
 	ListJobs(includeDisabled bool) []*cron.CronJob
 	AddJob(name string, schedule cron.CronSchedule, message string, opts ...cron.JobOption) (*cron.CronJob, error)
@@ -48,11 +49,9 @@ Actions:
 - disable: Disable an enabled task
 
 Schedule formats:
-- every:<duration>  - Repeat every duration (e.g., "every:1h", "every:30m", "every:2h")
+- every:<duration>  - Repeat every duration (e.g., "every:1h", "every:30m")
 - at:<datetime>     - Run once at specific time (e.g., "at:2024-12-25 09:00")
-- cron:<expr>       - Cron expression (e.g., "cron:0 9 * * *" for daily at 9am)
-
-Use timezone parameter for cron expressions (e.g., "Asia/Shanghai", "America/New_York")`
+- cron:<expr>       - Cron expression (e.g., "cron:0 9 * * *")`
 }
 
 func (t *CronTool) Parameters() map[string]interface{} {
@@ -74,7 +73,7 @@ func (t *CronTool) Parameters() map[string]interface{} {
 			},
 			"message": map[string]interface{}{
 				"type":        "string",
-				"description": "Message/prompt for the task to process (for add)",
+				"description": "Message/prompt for the task (for add)",
 			},
 			"job_id": map[string]interface{}{
 				"type":        "string",
@@ -82,11 +81,7 @@ func (t *CronTool) Parameters() map[string]interface{} {
 			},
 			"timezone": map[string]interface{}{
 				"type":        "string",
-				"description": "Timezone for cron expressions (e.g., Asia/Shanghai, America/New_York)",
-			},
-			"deliver_to_channel": map[string]interface{}{
-				"type":        "boolean",
-				"description": "Whether to deliver response to the channel where this task was created",
+				"description": "Timezone for cron expressions",
 			},
 		},
 		"required": []string{"action"},
@@ -95,13 +90,12 @@ func (t *CronTool) Parameters() map[string]interface{} {
 
 func (t *CronTool) Execute(ctx context.Context, params json.RawMessage) (string, error) {
 	var p struct {
-		Action           string `json:"action"`
-		Name             string `json:"name"`
-		Schedule         string `json:"schedule"`
-		Message          string `json:"message"`
-		JobID            string `json:"job_id"`
-		Timezone         string `json:"timezone"`
-		DeliverToChannel bool   `json:"deliver_to_channel"`
+		Action   string `json:"action"`
+		Name     string `json:"name"`
+		Schedule string `json:"schedule"`
+		Message  string `json:"message"`
+		JobID    string `json:"job_id"`
+		Timezone string `json:"timezone"`
 	}
 
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -112,7 +106,7 @@ func (t *CronTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	case "list":
 		return t.listJobs()
 	case "add":
-		return t.addJob(p.Name, p.Schedule, p.Message, p.Timezone, p.DeliverToChannel)
+		return t.addJob(p.Name, p.Schedule, p.Message, p.Timezone)
 	case "remove":
 		return t.removeJob(p.JobID)
 	case "enable":
@@ -126,7 +120,6 @@ func (t *CronTool) Execute(ctx context.Context, params json.RawMessage) (string,
 
 func (t *CronTool) listJobs() (string, error) {
 	jobs := t.service.ListJobs(true)
-
 	if len(jobs) == 0 {
 		return "No scheduled tasks found.", nil
 	}
@@ -145,24 +138,15 @@ func (t *CronTool) listJobs() (string, error) {
 		if job.State.LastRunAtMs > 0 {
 			sb.WriteString(fmt.Sprintf("  Last Run: %s (%s)\n", formatTime(job.State.LastRunAtMs), job.State.LastStatus))
 		}
-		if job.State.LastError != "" {
-			sb.WriteString(fmt.Sprintf("  Error: %s\n", job.State.LastError))
-		}
-		sb.WriteString(fmt.Sprintf("  Message: %s\n", truncate(job.Payload.Message, 100)))
+		sb.WriteString(fmt.Sprintf("  Message: %s\n", utils.TruncateString(job.Payload.Message, 100)))
 	}
 
 	return sb.String(), nil
 }
 
-func (t *CronTool) addJob(name, scheduleStr, message, timezone string, deliver bool) (string, error) {
-	if name == "" {
-		return "", fmt.Errorf("name is required")
-	}
-	if scheduleStr == "" {
-		return "", fmt.Errorf("schedule is required")
-	}
-	if message == "" {
-		return "", fmt.Errorf("message is required")
+func (t *CronTool) addJob(name, scheduleStr, message, timezone string) (string, error) {
+	if name == "" || scheduleStr == "" || message == "" {
+		return "", fmt.Errorf("name, schedule, and message are required")
 	}
 
 	schedule, err := parseSchedule(scheduleStr, timezone)
@@ -171,17 +155,9 @@ func (t *CronTool) addJob(name, scheduleStr, message, timezone string, deliver b
 	}
 
 	var opts []cron.JobOption
-
-	// 检查是否有渠道上下文
-	if w, ok := t.service.(*CronServiceWrapper); ok {
-		logger.Info("CronTool: detected CronServiceWrapper, Channel=%s, To=%s", w.Channel, w.ChannelTo)
-		if w.Channel != "" {
-			// 如果有渠道上下文，自动设置投递
-			opts = append(opts, cron.WithDeliver(w.Channel, w.ChannelTo))
-			logger.Info("CronTool: setting deliver option: channel=%s, to=%s", w.Channel, w.ChannelTo)
-		}
-	} else {
-		logger.Warn("CronTool: service is not CronServiceWrapper, type=%T", t.service)
+	if w, ok := t.service.(*CronServiceWrapper); ok && w.Channel != "" {
+		opts = append(opts, cron.WithDeliver(w.Channel, w.ChannelTo))
+		logger.Debug("CronTool: setting deliver: channel=%s, to=%s", w.Channel, w.ChannelTo)
 	}
 
 	job, err := t.service.AddJob(name, *schedule, message, opts...)
@@ -189,11 +165,11 @@ func (t *CronTool) addJob(name, scheduleStr, message, timezone string, deliver b
 		return "", err
 	}
 
-	result := fmt.Sprintf("Task created successfully!\n- ID: %s\n- Name: %s\n- Schedule: %s\n- Next Run: %s",
+	result := fmt.Sprintf("Task created!\n- ID: %s\n- Name: %s\n- Schedule: %s\n- Next Run: %s",
 		job.ID, job.Name, formatSchedule(job.Schedule), formatTime(job.State.NextRunAtMs))
 
 	if job.Payload.Deliver {
-		result += fmt.Sprintf("\n- Will notify you on: %s", job.Payload.Channel)
+		result += fmt.Sprintf("\n- Notify on: %s", job.Payload.Channel)
 	}
 
 	return result, nil
@@ -203,9 +179,8 @@ func (t *CronTool) removeJob(id string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("job_id is required")
 	}
-
 	if t.service.RemoveJob(id) {
-		return fmt.Sprintf("Task %s removed successfully.", id), nil
+		return fmt.Sprintf("Task %s removed.", id), nil
 	}
 	return "", fmt.Errorf("task %s not found", id)
 }
@@ -229,7 +204,6 @@ func (t *CronTool) enableJob(id string, enabled bool) (string, error) {
 	if enabled {
 		result += fmt.Sprintf(" Next run: %s", formatTime(job.State.NextRunAtMs))
 	}
-
 	return result, nil
 }
 
@@ -260,7 +234,7 @@ func parseSchedule(s string, tz string) (*cron.CronSchedule, error) {
 		}, nil
 
 	case "at":
-		t, err := parseTimeValue(value)
+		t, err := utils.ParseTime(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid datetime: %w", err)
 		}
@@ -279,24 +253,6 @@ func parseSchedule(s string, tz string) (*cron.CronSchedule, error) {
 	default:
 		return nil, fmt.Errorf("unknown schedule kind: %s", kind)
 	}
-}
-
-// parseTimeValue 解析时间字符串
-func parseTimeValue(s string) (time.Time, error) {
-	formats := []string{
-		"2006-01-02 15:04:05",
-		"2006-01-02 15:04",
-		"2006-01-02",
-		time.RFC3339,
-	}
-
-	for _, format := range formats {
-		if t, err := time.ParseInLocation(format, s, time.Local); err == nil {
-			return t, nil
-		}
-	}
-
-	return time.Time{}, fmt.Errorf("cannot parse time: %s (expected format: YYYY-MM-DD HH:MM:SS)", s)
 }
 
 // formatSchedule 格式化调度信息
@@ -322,12 +278,4 @@ func formatTime(ms int64) string {
 		return "not scheduled"
 	}
 	return time.UnixMilli(ms).Format("2006-01-02 15:04:05")
-}
-
-// truncate 截断字符串
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

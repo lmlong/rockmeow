@@ -18,9 +18,9 @@ type MockTool struct {
 	executeFunc func(ctx context.Context, params json.RawMessage) (string, error)
 }
 
-func (t *MockTool) Name() string                                          { return t.name }
-func (t *MockTool) Description() string                                   { return t.description }
-func (t *MockTool) Parameters() map[string]interface{}                    { return nil }
+func (t *MockTool) Name() string                       { return t.name }
+func (t *MockTool) Description() string                { return t.description }
+func (t *MockTool) Parameters() map[string]interface{} { return nil }
 func (t *MockTool) Execute(ctx context.Context, params json.RawMessage) (string, error) {
 	if t.executeFunc != nil {
 		return t.executeFunc(ctx, params)
@@ -31,16 +31,16 @@ func (t *MockTool) IsDangerous() bool { return false }
 
 // MockProvider 模拟 LLM 提供商
 type MockProvider struct {
-	name       string
-	model      string
-	callCount  int
-	mu         sync.Mutex
+	name      string
+	model     string
+	callCount int
+	mu        sync.Mutex
 }
 
-func (p *MockProvider) Name() string                       { return p.name }
-func (p *MockProvider) Model() string                      { return p.model }
-func (p *MockProvider) SupportsTools() bool                { return true }
-func (p *MockProvider) SupportsVision() bool               { return false }
+func (p *MockProvider) Name() string         { return p.name }
+func (p *MockProvider) Model() string        { return p.model }
+func (p *MockProvider) SupportsTools() bool  { return true }
+func (p *MockProvider) SupportsVision() bool { return false }
 func (p *MockProvider) Stream(ctx context.Context, req *llm.Request) (<-chan llm.StreamEvent, error) {
 	return nil, nil
 }
@@ -53,9 +53,9 @@ func (p *MockProvider) Complete(ctx context.Context, req *llm.Request) (*llm.Res
 		ID:    "mock-response",
 		Model: p.model,
 		Choices: []struct {
-			Index        int     `json:"index"`
+			Index        int         `json:"index"`
 			Message      llm.Message `json:"message"`
-			FinishReason string  `json:"finish_reason"`
+			FinishReason string      `json:"finish_reason"`
 		}{
 			{
 				Index: 0,

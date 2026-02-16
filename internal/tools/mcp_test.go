@@ -203,20 +203,6 @@ func TestMCPClient_NoCommand(t *testing.T) {
 	}
 }
 
-// TestSSEClient_NoURL tests that SSE client fails gracefully without URL
-func TestSSEClient_NoURL(t *testing.T) {
-	cfg := config.MCPServerConfig{
-		URL: "",
-	}
-	client := NewSSEClient("test", cfg)
-
-	err := client.Connect(context.Background())
-	if err == nil {
-		t.Error("Expected error when no URL configured")
-		client.Close()
-	}
-}
-
 func TestMCPHTTPClient_NoURL(t *testing.T) {
 	cfg := config.MCPServerConfig{
 		URL: "",

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -14,10 +13,9 @@ import (
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/internal/cron"
 	"github.com/lingguard/internal/heartbeat"
-	"github.com/lingguard/internal/providers"
-	"github.com/lingguard/internal/skills"
 	"github.com/lingguard/internal/tools"
 	"github.com/lingguard/pkg/logger"
+	"github.com/lingguard/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -47,8 +45,15 @@ func runGateway() error {
 	// 初始化日志
 	logger.Init(cfg.Logging.Level, cfg.Logging.Format, cfg.Logging.Output)
 
-	// 创建 Agent
-	ag, err := createGatewayAgent(cfg)
+	// 创建 Agent（使用 AgentBuilder）
+	builder := NewAgentBuilder(cfg)
+	builder.InitSkills(false)
+	if err := builder.InitProvider(); err != nil {
+		return fmt.Errorf("init provider: %w", err)
+	}
+	builder.InitWorkspace()
+
+	ag, err := builder.Build()
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
@@ -56,48 +61,31 @@ func runGateway() error {
 	// 创建 Channel Manager
 	mgr := channels.NewManager()
 
-	// 创建基础 AgentAdapter
-	baseAdapter := channels.NewAgentAdapter(ag)
-
-	// 创建 MessageTool（用于 Agent 主动发送消息）
+	// 创建 MessageTool
 	messageTool := tools.NewMessageTool(mgr)
 	ag.RegisterTool(messageTool)
 
 	// 连接 MCP 服务器
-	var mcpManager *tools.MCPManager
-	if len(cfg.Tools.MCPServers) > 0 {
-		mcpManager = tools.NewMCPManager()
-		ctx := context.Background()
-		if err := mcpManager.ConnectServers(ctx, cfg.Tools.MCPServers); err != nil {
-			logger.Error("Failed to connect MCP servers: %v", err)
-		} else {
-			// 注册 MCP 工具
-			for name, tool := range mcpManager.GetTools() {
-				ag.RegisterTool(tool)
-				logger.Debug("Registered MCP tool: %s", name)
-			}
-		}
+	mcpManager, err := builder.ConnectMCP(ag)
+	if err != nil {
+		logger.Error("Failed to connect MCP servers: %v", err)
 	}
 
-	// 启动定时任务服务（先启动，这样 ContextAdapter 才能正确包装）
+	// 启动定时任务服务
 	var cronService *cron.Service
 	var cronWrapper *tools.CronServiceWrapper
 	if cfg.Cron != nil && cfg.Cron.Enabled {
-		storePath := expandHomePath(cfg.Cron.StorePath)
+		storePath := utils.ExpandHome(cfg.Cron.StorePath)
 		if storePath == "" {
-			storePath = expandHomePath("~/.lingguard/cron/jobs.json")
+			storePath = utils.ExpandHome("~/.lingguard/cron/jobs.json")
 		}
 
-		// 创建任务执行回调
-		onJob := createCronJobCallback(ag, mgr)
-
-		cronService = cron.NewService(storePath, onJob)
+		cronService = cron.NewService(storePath, createCronJobCallback(ag, mgr))
 		if err := cronService.Start(); err != nil {
 			return fmt.Errorf("start cron service: %w", err)
 		}
 		logger.Info("Cron service started")
 
-		// 创建包装器并注册到 Agent
 		cronWrapper = tools.NewCronServiceWrapper(cronService)
 		ag.RegisterCronTool(cronWrapper)
 	}
@@ -105,66 +93,34 @@ func runGateway() error {
 	// 启动心跳服务
 	var heartbeatService *heartbeat.Service
 	if cfg.Heartbeat != nil && cfg.Heartbeat.Enabled {
-		// 计算心跳间隔
 		interval := time.Duration(cfg.Heartbeat.Interval) * time.Minute
 		if interval <= 0 {
-			interval = 30 * time.Minute // 默认 30 分钟
+			interval = 30 * time.Minute
 		}
 
-		heartbeatConfig := &heartbeat.Config{
+		heartbeatService = heartbeat.NewService(&heartbeat.Config{
 			Enabled:  true,
 			Interval: interval,
-		}
+		}, createHeartbeatCallback(ag))
 
-		// 创建心跳回调
-		onHeartbeat := createHeartbeatCallback(ag)
-
-		heartbeatService = heartbeat.NewService(heartbeatConfig, onHeartbeat)
-
-		// 设置工作空间路径
 		workspace := cfg.Agents.Workspace
 		if workspace == "" {
 			workspace = cfg.Tools.Workspace
 		}
-		heartbeatService.SetWorkspace(expandHomePath(workspace))
-
-		// 启动服务
+		heartbeatService.SetWorkspace(utils.ExpandHome(workspace))
 		heartbeatService.Start()
 		logger.Info("Heartbeat service started (interval: %v)", interval)
 	}
 
-	// 使用 ContextAdapter 包装 AgentAdapter
-	// 始终使用 ContextAdapter 以支持 MessageTool 上下文
+	// 创建消息处理器
+	baseAdapter := channels.NewAgentAdapter(ag)
 	contextAdapter := channels.NewContextAdapter(baseAdapter, cronWrapper)
 	contextAdapter.SetMessageTool(messageTool)
-	var adapter channels.MessageHandler = contextAdapter
-	logger.Info("ContextAdapter enabled for message and cron delivery")
+	var handler channels.MessageHandler = contextAdapter
 
-	// 注册飞书渠道
-	if cfg.Channels.Feishu != nil && cfg.Channels.Feishu.Enabled {
-		if cfg.Channels.Feishu.AppID == "" || cfg.Channels.Feishu.AppSecret == "" {
-			return fmt.Errorf("feishu channel enabled but appId or appSecret not configured")
-		}
-		fc := channels.NewFeishuChannel(cfg.Channels.Feishu, adapter)
-		mgr.RegisterChannel(fc)
-		logger.Info("Feishu channel registered")
-	}
-
-	// 注册 QQ 渠道
-	if cfg.Channels.QQ != nil && cfg.Channels.QQ.Enabled {
-		if cfg.Channels.QQ.AppID == "" || cfg.Channels.QQ.Secret == "" {
-			return fmt.Errorf("qq channel enabled but appId or secret not configured")
-		}
-		qc := channels.NewQQChannel(cfg.Channels.QQ, adapter)
-		mgr.RegisterChannel(qc)
-		logger.Info("QQ channel registered")
-	}
-
-	// 检查是否有渠道注册
-	hasChannel := (cfg.Channels.Feishu != nil && cfg.Channels.Feishu.Enabled) ||
-		(cfg.Channels.QQ != nil && cfg.Channels.QQ.Enabled)
-	if !hasChannel {
-		return fmt.Errorf("no channels enabled, please configure at least one channel (feishu, qq)")
+	// 注册渠道
+	if err := registerChannels(cfg, mgr, handler); err != nil {
+		return err
 	}
 
 	// 启动
@@ -186,17 +142,13 @@ func runGateway() error {
 	fmt.Println("\nShutting down...")
 	logger.Info("Gateway shutting down")
 
-	// 停止 MCP 服务
+	// 清理资源
 	if mcpManager != nil {
 		mcpManager.Close()
 	}
-
-	// 停止定时任务服务
 	if cronService != nil {
 		cronService.Stop()
 	}
-
-	// 停止心跳服务
 	if heartbeatService != nil {
 		heartbeatService.Stop()
 	}
@@ -204,85 +156,33 @@ func runGateway() error {
 	return mgr.StopAll()
 }
 
-func createGatewayAgent(cfg *config.Config) (*agent.Agent, error) {
-	// 1. 创建 Provider 注册表
-	registry := providers.NewRegistry()
-	if err := registry.InitFromConfig(cfg); err != nil {
-		return nil, err
+// registerChannels 注册所有渠道
+func registerChannels(cfg *config.Config, mgr *channels.Manager, handler channels.MessageHandler) error {
+	// 飞书渠道
+	if cfg.Channels.Feishu != nil && cfg.Channels.Feishu.Enabled {
+		if cfg.Channels.Feishu.AppID == "" || cfg.Channels.Feishu.AppSecret == "" {
+			return fmt.Errorf("feishu channel enabled but appId or appSecret not configured")
+		}
+		mgr.RegisterChannel(channels.NewFeishuChannel(cfg.Channels.Feishu, handler))
+		logger.Info("Feishu channel registered")
 	}
 
-	// 2. 通过 provider 配置获取 Provider
-	providerName := cfg.Agents.Provider
-	provider, spec := registry.MatchProvider(providerName)
-	if provider == nil {
-		return nil, fmt.Errorf("provider not found: %s", providerName)
-	}
-	_ = spec // spec 可用于获取 DisplayName 等信息
-
-	// 3. 设置默认 Provider
-	registry.SetDefault(providerName)
-
-	// 4. 创建 Skills Loader
-	// 支持从多个目录加载技能：
-	// 1. 程序执行目录的 skills/builtin/（内置技能）
-	// 2. ~/.lingguard/skills/（用户技能）
-	var skillDirs []string
-	home, _ := os.UserHomeDir()
-
-	// 内置技能目录：程序执行目录的 skills/builtin/
-	execPath, _ := os.Executable()
-	execDir := filepath.Dir(execPath)
-	builtinDir := filepath.Join(execDir, "skills", "builtin")
-	if _, err := os.Stat(builtinDir); err == nil {
-		skillDirs = append(skillDirs, builtinDir)
-		logger.Info("Built-in skills: %s", builtinDir)
+	// QQ 渠道
+	if cfg.Channels.QQ != nil && cfg.Channels.QQ.Enabled {
+		if cfg.Channels.QQ.AppID == "" || cfg.Channels.QQ.Secret == "" {
+			return fmt.Errorf("qq channel enabled but appId or secret not configured")
+		}
+		mgr.RegisterChannel(channels.NewQQChannel(cfg.Channels.QQ, handler))
+		logger.Info("QQ channel registered")
 	}
 
-	// 用户技能目录：~/.lingguard/skills/
-	userSkillsDir := filepath.Join(home, ".lingguard", "skills")
-	if _, err := os.Stat(userSkillsDir); err == nil {
-		skillDirs = append(skillDirs, userSkillsDir)
-		logger.Info("User skills: %s", userSkillsDir)
+	// 检查是否有渠道
+	if (cfg.Channels.Feishu == nil || !cfg.Channels.Feishu.Enabled) &&
+		(cfg.Channels.QQ == nil || !cfg.Channels.QQ.Enabled) {
+		return fmt.Errorf("no channels enabled, please configure at least one channel")
 	}
 
-	var skillsLoader *skills.Loader
-	if len(skillDirs) > 0 {
-		skillsLoader = skills.NewLoader(skillDirs, "")
-	}
-
-	// 5. 创建 Agent
-	ag := agent.NewAgent(&cfg.Agents, provider, skillsLoader)
-
-	// 6. 创建工作目录管理器
-	workspace := cfg.Agents.Workspace
-	if workspace == "" {
-		workspace = cfg.Tools.Workspace
-	}
-	workspaceMgr := tools.NewWorkspaceManager(workspace, cfgPath)
-
-	// 7. 注册工具
-	ag.RegisterTool(tools.NewShellTool(workspaceMgr, cfg.Tools.RestrictToWorkspace))
-	ag.RegisterTool(tools.NewFileTool(workspaceMgr, cfg.Tools.RestrictToWorkspace))
-	ag.RegisterTool(tools.NewWorkspaceTool(workspaceMgr))
-
-	// 注册 Web 工具
-	braveAPIKey := cfg.Tools.BraveAPIKey
-	if braveAPIKey == "" {
-		braveAPIKey = os.Getenv("BRAVE_API_KEY")
-	}
-	ag.RegisterTool(tools.NewWebSearchTool(braveAPIKey, 5))
-	ag.RegisterTool(tools.NewWebFetchTool(cfg.Tools.WebMaxChars))
-
-	// 7. 注册技能工具（支持按需加载技能）
-	ag.RegisterSkillTool()
-
-	// 8. 注册子代理工具（支持后台任务）
-	ag.RegisterSubagentTools()
-
-	// 9. 注册记忆工具（参考 nanobot）
-	ag.RegisterMemoryTool()
-
-	return ag, nil
+	return nil
 }
 
 // createCronJobCallback 创建定时任务执行回调
@@ -291,13 +191,11 @@ func createCronJobCallback(ag *agent.Agent, mgr *channels.Manager) cron.JobCallb
 		ctx := context.Background()
 		sessionID := fmt.Sprintf("cron-%s", job.ID)
 
-		// 执行 Agent 处理消息
 		response, err := ag.ProcessMessage(ctx, sessionID, job.Payload.Message)
 		if err != nil {
 			return "", err
 		}
 
-		// 如果需要投递到渠道
 		if job.Payload.Deliver && job.Payload.Channel != "" && job.Payload.To != "" {
 			if err := mgr.SendMessage(job.Payload.Channel, job.Payload.To, response); err != nil {
 				logger.Error("Failed to deliver cron job response: %v", err)
@@ -311,24 +209,6 @@ func createCronJobCallback(ag *agent.Agent, mgr *channels.Manager) cron.JobCallb
 // createHeartbeatCallback 创建心跳回调
 func createHeartbeatCallback(ag *agent.Agent) heartbeat.AgentCallback {
 	return func(ctx context.Context, prompt string) (string, error) {
-		// 使用固定的心跳会话 ID
-		sessionID := "heartbeat-main"
-
-		// 执行 Agent 处理消息
-		response, err := ag.ProcessMessage(ctx, sessionID, prompt)
-		if err != nil {
-			return "", err
-		}
-
-		return response, nil
+		return ag.ProcessMessage(ctx, "heartbeat-main", prompt)
 	}
-}
-
-// expandHomePath 展开路径中的 ~ 为用户主目录
-func expandHomePath(path string) string {
-	if len(path) > 0 && path[0] == '~' {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, path[1:])
-	}
-	return path
 }

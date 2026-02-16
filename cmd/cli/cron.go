@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/internal/cron"
+	"github.com/lingguard/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -23,7 +23,7 @@ var cronListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all scheduled tasks",
 	Run: func(cmd *cobra.Command, args []string) {
-		cfg, service, err := initCronService()
+		_, service, err := initCronService()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -50,14 +50,12 @@ var cronListCmd = &cobra.Command{
 
 			fmt.Printf("ID: %s | Status: %s | Name: %s\n", job.ID, status, job.Name)
 			fmt.Printf("    Schedule: %s | Next: %s\n", formatSchedule(job.Schedule), nextRun)
-			fmt.Printf("    Message: %s\n", truncateString(job.Payload.Message, 50))
+			fmt.Printf("    Message: %s\n", utils.TruncateString(job.Payload.Message, 50))
 			if lastRun != "" {
 				fmt.Printf("    Last Run: %s\n", lastRun)
 			}
 			fmt.Println("─────────────────────────────────────────────────────────────────────────")
 		}
-
-		_ = cfg
 	},
 }
 
@@ -87,9 +85,7 @@ Timezone:
 		scheduleStr := args[1]
 		message := args[2]
 
-		// 获取时区参数
 		tz, _ := cmd.Flags().GetString("tz")
-
 		schedule, err := parseScheduleWithTZ(scheduleStr, tz)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error parsing schedule: %v\n", err)
@@ -98,17 +94,13 @@ Timezone:
 
 		var opts []cron.JobOption
 
-		// 处理投递选项
-		deliver, _ := cmd.Flags().GetBool("deliver")
-		if deliver {
+		if deliver, _ := cmd.Flags().GetBool("deliver"); deliver {
 			channel, _ := cmd.Flags().GetString("channel")
 			to, _ := cmd.Flags().GetString("to")
 			opts = append(opts, cron.WithDeliver(channel, to))
 		}
 
-		// 处理一次性任务选项
-		deleteAfter, _ := cmd.Flags().GetBool("delete-after")
-		if deleteAfter {
+		if deleteAfter, _ := cmd.Flags().GetBool("delete-after"); deleteAfter {
 			opts = append(opts, cron.WithDeleteAfterRun())
 		}
 
@@ -225,7 +217,7 @@ var cronRunCmd = &cobra.Command{
 			fmt.Printf("  Error: %s\n", job.State.LastError)
 		}
 		if job.State.LastResponse != "" {
-			fmt.Printf("  Response: %s\n", truncateString(job.State.LastResponse, 200))
+			fmt.Printf("  Response: %s\n", utils.TruncateString(job.State.LastResponse, 200))
 		}
 	},
 }
@@ -257,36 +249,27 @@ func init() {
 	cronCmd.AddCommand(cronRunCmd)
 	cronCmd.AddCommand(cronStatusCmd)
 
-	// cron list flags
 	cronListCmd.Flags().BoolP("all", "a", false, "Include disabled tasks")
-
-	// cron add flags
 	cronAddCmd.Flags().BoolP("deliver", "d", false, "Deliver response to channel")
 	cronAddCmd.Flags().StringP("channel", "c", "", "Target channel (e.g., feishu)")
 	cronAddCmd.Flags().StringP("to", "t", "", "Target user/group ID")
-	cronAddCmd.Flags().BoolP("delete-after", "", false, "Delete after execution (for one-shot tasks)")
-	cronAddCmd.Flags().StringP("tz", "z", "", "Timezone for cron expression (e.g., America/New_York, Asia/Shanghai)")
-
-	// cron run flags
+	cronAddCmd.Flags().BoolP("delete-after", "", false, "Delete after execution")
+	cronAddCmd.Flags().StringP("tz", "z", "", "Timezone for cron expression")
 	cronRunCmd.Flags().BoolP("force", "f", false, "Force run even if disabled")
 }
 
-// initCronService 初始化定时任务服务
 func initCronService() (*config.Config, *cron.Service, error) {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load config: %w", err)
 	}
 
-	// 获取存储路径
-	storePath := expandTilde("~/.lingguard/cron/jobs.json")
+	storePath := utils.ExpandHome("~/.lingguard/cron/jobs.json")
 	if cfg.Cron != nil && cfg.Cron.StorePath != "" {
-		storePath = expandTilde(cfg.Cron.StorePath)
+		storePath = utils.ExpandHome(cfg.Cron.StorePath)
 	}
 
-	// 创建服务（不设置回调，CLI 模式下手动执行）
 	service := cron.NewService(storePath, nil)
-
 	if err := service.Start(); err != nil {
 		return nil, nil, fmt.Errorf("start cron service: %w", err)
 	}
@@ -294,12 +277,6 @@ func initCronService() (*config.Config, *cron.Service, error) {
 	return cfg, service, nil
 }
 
-// parseSchedule 解析调度字符串
-func parseSchedule(s string) (*cron.CronSchedule, error) {
-	return parseScheduleWithTZ(s, "")
-}
-
-// parseScheduleWithTZ 解析调度字符串（支持时区）
 func parseScheduleWithTZ(s string, tz string) (*cron.CronSchedule, error) {
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 {
@@ -321,8 +298,7 @@ func parseScheduleWithTZ(s string, tz string) (*cron.CronSchedule, error) {
 		}, nil
 
 	case "at":
-		// 支持多种时间格式
-		t, err := parseTime(value)
+		t, err := utils.ParseTime(value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid datetime: %w", err)
 		}
@@ -343,25 +319,6 @@ func parseScheduleWithTZ(s string, tz string) (*cron.CronSchedule, error) {
 	}
 }
 
-// parseTime 解析时间字符串
-func parseTime(s string) (time.Time, error) {
-	formats := []string{
-		"2006-01-02 15:04:05",
-		"2006-01-02 15:04",
-		"2006-01-02",
-		time.RFC3339,
-	}
-
-	for _, format := range formats {
-		if t, err := time.ParseInLocation(format, s, time.Local); err == nil {
-			return t, nil
-		}
-	}
-
-	return time.Time{}, fmt.Errorf("cannot parse time: %s", s)
-}
-
-// formatSchedule 格式化调度信息
 func formatSchedule(s cron.CronSchedule) string {
 	switch s.Kind {
 	case cron.ScheduleKindEvery:
@@ -378,40 +335,16 @@ func formatSchedule(s cron.CronSchedule) string {
 	}
 }
 
-// formatNextRun 格式化下次执行时间
 func formatNextRun(ms int64) string {
 	if ms == 0 {
 		return "not scheduled"
 	}
-	t := time.UnixMilli(ms)
-	return t.Format("2006-01-02 15:04:05")
+	return time.UnixMilli(ms).Format("2006-01-02 15:04:05")
 }
 
-// formatLastRun 格式化上次执行信息
 func formatLastRun(ms int64, status cron.JobStatus) string {
 	if ms == 0 {
 		return ""
 	}
-	t := time.UnixMilli(ms)
-	return fmt.Sprintf("%s (%s)", t.Format("2006-01-02 15:04:05"), status)
+	return fmt.Sprintf("%s (%s)", time.UnixMilli(ms).Format("2006-01-02 15:04:05"), status)
 }
-
-// truncateString 截断字符串
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
-
-// expandTilde 展开 ~ 为用户主目录
-func expandTilde(path string) string {
-	if len(path) > 0 && path[0] == '~' {
-		home, _ := os.UserHomeDir()
-		return home + path[1:]
-	}
-	return path
-}
-
-// 实现 strconv 包的引用（避免未使用导入）
-var _ = strconv.Itoa
