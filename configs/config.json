@@ -50,14 +50,23 @@
     }
   },
   "tools": {
-    "restrictToWorkspace": true,
-    "workspace": "~/.lingguard/workspace",
+    "restrictToWorkspace": false,
+    "workspace": "/home/etsme/cy/openclaw/code/lingguard",
     "tavilyApiKey": "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",
     "mcpServers": {
       "filesystem": {
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "${workspace}"]
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-filesystem",
+          "${workspace}"
+        ]
       }
+    },
+    "opencode": {
+      "enabled": true,
+      "baseURL": "http://127.0.0.1:4096",
+      "timeout": 300
     }
   },
   "storage": {

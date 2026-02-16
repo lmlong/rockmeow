@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/lingguard/internal/agent"
 	"github.com/lingguard/internal/config"
@@ -151,6 +152,25 @@ func (b *AgentBuilder) Build() (*agent.Agent, error) {
 
 	// 注册记忆工具
 	ag.RegisterMemoryTool()
+
+	// 注册 OpenCode 工具
+	if b.cfg.Tools.OpenCode != nil && b.cfg.Tools.OpenCode.Enabled {
+		openCodeCfg := tools.DefaultOpenCodeConfig()
+		if b.cfg.Tools.OpenCode.BaseURL != "" {
+			openCodeCfg.BaseURL = b.cfg.Tools.OpenCode.BaseURL
+		}
+		if b.cfg.Tools.OpenCode.Timeout > 0 {
+			openCodeCfg.Timeout = time.Duration(b.cfg.Tools.OpenCode.Timeout) * time.Second
+		}
+		ag.RegisterTool(tools.NewOpenCodeTool(openCodeCfg))
+		logger.Info("OpenCode tool enabled: %s", openCodeCfg.BaseURL)
+	} else {
+		if b.cfg.Tools.OpenCode == nil {
+			logger.Debug("OpenCode config is nil, tool not registered")
+		} else {
+			logger.Debug("OpenCode not enabled, tool not registered")
+		}
+	}
 
 	// 注册可选工具
 	if b.enableCron && b.cronService != nil {

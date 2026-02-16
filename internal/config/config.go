@@ -83,6 +83,15 @@ type ToolsConfig struct {
 	WebMaxChars  int    `json:"webMaxChars,omitempty"`  // 网页抓取最大字符数，默认 50000
 	// MCP (Model Context Protocol) servers
 	MCPServers map[string]MCPServerConfig `json:"mcpServers,omitempty"` // MCP 服务器配置
+	// OpenCode integration
+	OpenCode *OpenCodeConfig `json:"opencode,omitempty"` // OpenCode HTTP API 配置
+}
+
+// OpenCodeConfig OpenCode HTTP API 配置
+type OpenCodeConfig struct {
+	Enabled bool   `json:"enabled"`           // 是否启用 OpenCode 工具
+	BaseURL string `json:"baseURL,omitempty"` // OpenCode 服务器地址，默认 http://127.0.0.1:4096
+	Timeout int    `json:"timeout,omitempty"` // 请求超时时间（秒），默认 300
 }
 
 // MCPServerConfig MCP 服务器配置
