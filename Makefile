@@ -38,9 +38,11 @@ test:
 	go test -v ./...
 
 # 安装到系统（包括 systemd 服务和配置）
-install:
+install: build
 	@echo "安装 LingGuard..."
 	PREFIX=$(PREFIX) bash scripts/install.sh
+	systemctl --user daemon-reload
+	systemctl --user restart lingguard.service
 
 # 卸载
 uninstall:
