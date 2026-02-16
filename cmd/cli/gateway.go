@@ -75,7 +75,7 @@ func runGateway() error {
 	// 连接 MCP 服务器
 	mcpManager, err := builder.ConnectMCP(ag)
 	if err != nil {
-		logger.Error("Failed to connect MCP servers: %v", err)
+		logger.Error("Failed to connect MCP servers", "error", err)
 	}
 
 	// 启动定时任务服务
@@ -116,7 +116,7 @@ func runGateway() error {
 		}
 		heartbeatService.SetWorkspace(utils.ExpandHome(workspace))
 		heartbeatService.Start()
-		logger.Info("Heartbeat service started (interval: %v)", interval)
+		logger.Info("Heartbeat service started", "interval", interval)
 	}
 
 	// 创建消息处理器
@@ -205,7 +205,7 @@ func createCronJobCallback(ag *agent.Agent, mgr *channels.Manager) cron.JobCallb
 
 		if job.Payload.Deliver && job.Payload.Channel != "" && job.Payload.To != "" {
 			if err := mgr.SendMessage(job.Payload.Channel, job.Payload.To, response); err != nil {
-				logger.Error("Failed to deliver cron job response: %v", err)
+				logger.Error("Failed to deliver cron job response", "error", err)
 			}
 		}
 

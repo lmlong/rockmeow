@@ -163,7 +163,7 @@ func (b *AgentBuilder) Build() (*agent.Agent, error) {
 			openCodeCfg.Timeout = time.Duration(b.cfg.Tools.OpenCode.Timeout) * time.Second
 		}
 		ag.RegisterTool(tools.NewOpenCodeTool(openCodeCfg))
-		logger.Info("OpenCode tool enabled: %s", openCodeCfg.BaseURL)
+		logger.Info("OpenCode tool enabled", "baseURL", openCodeCfg.BaseURL)
 	} else {
 		if b.cfg.Tools.OpenCode == nil {
 			logger.Debug("OpenCode config is nil, tool not registered")
@@ -205,7 +205,7 @@ func (b *AgentBuilder) ConnectMCP(ag *agent.Agent) (*tools.MCPManager, error) {
 	// 注册 MCP 工具
 	for name, tool := range mcpManager.GetTools() {
 		ag.RegisterTool(tool)
-		logger.Debug("Registered MCP tool: %s", name)
+		logger.Debug("Registered MCP tool", "name", name)
 	}
 
 	b.mcpManager = mcpManager

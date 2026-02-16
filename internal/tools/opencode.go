@@ -95,7 +95,7 @@ func (c *OpenCodeClient) CreateSession(ctx context.Context, title string) (*Open
 	c.sessionID = session.ID
 	c.mu.Unlock()
 
-	logger.Info("OpenCode session created: %s", session.ID)
+	logger.Info("OpenCode session created", "id", session.ID)
 	return &session, nil
 }
 
