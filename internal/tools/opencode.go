@@ -404,7 +404,10 @@ Use this tool for ANY task involving:
 - Running tests or build commands
 - Code analysis and review
 
-DO NOT use the 'file' tool for writing code. Use THIS tool instead.
+IMPORTANT:
+- DO NOT use the 'file' or 'shell' tools after opencode completes
+- OpenCode handles everything including verification
+- If timeout occurs, tell user to try again or split the task
 
 Actions:
 - "prompt": Send a natural language coding task

@@ -6,73 +6,66 @@ always: true
 ---
 # Coding Tasks - MUST Use OpenCode
 
-**CRITICAL: For ANY coding-related task, you MUST use the `opencode` tool. DO NOT use the `file` or `shell` tools for coding tasks.**
+**CRITICAL: For ANY coding-related task, use ONLY the `opencode` tool. DO NOT use other tools.**
 
-The `opencode` tool delegates to OpenCode, a professional AI coding agent that handles file creation, editing, and code analysis.
+## Rules
 
-## When to Use opencode (MANDATORY)
-
-You MUST use `opencode` for these tasks:
-
-- Writing code (any language: Python, Go, JavaScript, etc.)
-- Creating new source files
-- Editing existing code
-- Refactoring code
-- Debugging
-- Running tests or build commands
-- Code analysis and review
-- Any task involving `.py`, `.go`, `.js`, `.ts`, `.java`, etc.
+1. **Use ONLY opencode tool** for coding tasks
+2. **DO NOT** use `file`, `shell`, or `workspace` tools to check or verify OpenCode's work
+3. **DO NOT** run additional commands after opencode completes
+4. OpenCode handles everything: writing, editing, running, and verifying code
 
 ## How to Use opencode
 
-### Simple Coding Task
-
-For writing code:
+Send the complete task to opencode in ONE call:
 
 ```json
-{"action": "prompt", "task": "Create a Python hello world program in hello.py", "agent": "build"}
+{"action": "prompt", "task": "Fix ioutil usage in database/leveldb_job.go, replace with os package", "agent": "build"}
 ```
 
-### Editing Code
+OpenCode will:
+- Find and read the file
+- Make the changes
+- Verify the fix works
 
+## Example - Code Fix Task
+
+**Request**: "修复 database/leveldb_job.go 中的 ioutil 使用"
+
+**Correct** - One opencode call:
 ```json
-{"action": "prompt", "task": "Add error handling to the main function in app.py", "agent": "build"}
+{"action": "prompt", "task": "Fix ioutil usage in database/leveldb_job.go. Replace ioutil.ReadAll with io.ReadAll and ioutil.NopCloser with io.NopCloser. Update imports.", "agent": "build"}
 ```
 
-### Running Commands
-
-```json
-{"action": "shell", "task": "python hello.py"}
+**WRONG** - Using multiple tools:
+```
+opencode → shell → file → shell  <-- DO NOT DO THIS
 ```
 
-## Examples
+## Timeout Handling
 
-**Request**: "使用python语言编写一个hello world的程序"
+If opencode times out:
+1. **DO NOT** fall back to file/shell tools
+2. Tell user: "OpenCode 处理超时，请稍后重试或简化任务"
+3. Suggest breaking the task into smaller pieces
 
-**Correct Action** - Use opencode tool:
-```json
-{"action": "prompt", "task": "Create a Python hello world program in hello.py", "agent": "build"}
+## Tips for Complex Tasks
+
+For large tasks, split into smaller ones:
+```
+Task 1: "Fix ioutil in file A"
+Task 2: "Fix ioutil in file B"
 ```
 
-**WRONG** - Do NOT use file tool:
-```
-file tool with operation: write  <-- DO NOT DO THIS
-```
-
-## Agent Types
-
-- `build` - Default. Writes and edits files.
-- `plan` - Only plans, no file changes.
+Instead of: "Fix ioutil in all files"
 
 ## Quick Reference
 
-| Task | Tool | Example |
-|------|------|---------|
-| Write code | opencode | `{"action": "prompt", "task": "Create xxx"}` |
-| Edit code | opencode | `{"action": "prompt", "task": "Modify xxx"}` |
-| Run tests | opencode | `{"action": "shell", "task": "go test"}` |
-| Code review | opencode | `{"action": "command", "task": "/review"}` |
-| Read docs | file | `{"operation": "read", "path": "README.md"}` |
-| List files | file | `{"operation": "list", "path": "."}` |
+| Task | Action | Example |
+|------|--------|---------|
+| Write code | prompt | `{"action": "prompt", "task": "Create xxx"}` |
+| Fix code | prompt | `{"action": "prompt", "task": "Fix xxx in file.go"}` |
+| Run tests | shell | `{"action": "shell", "task": "go test ./..."}` |
+| Code review | command | `{"action": "command", "task": "/review"}` |
 
-**Remember: opencode for coding, file for reading docs/listing only.**
+**One opencode call = Complete task. No follow-up tools needed.**

@@ -33,7 +33,7 @@
   "agents": {
     "workspace": "~/.lingguard/workspace",
     "provider": "glm",
-    "maxToolIterations": 20,
+    "maxToolIterations": 50,
     "memoryWindow": 50,
     "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。",
     "memory": {
@@ -66,7 +66,7 @@
     "opencode": {
       "enabled": true,
       "baseURL": "http://127.0.0.1:4096",
-      "timeout": 300
+      "timeout": 600
     }
   },
   "storage": {
