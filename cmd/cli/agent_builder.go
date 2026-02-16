@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -170,7 +171,8 @@ func (b *AgentBuilder) ConnectMCP(ag *agent.Agent) (*tools.MCPManager, error) {
 	}
 
 	mcpManager := tools.NewMCPManager()
-	if err := mcpManager.ConnectServers(nil, b.cfg.Tools.MCPServers); err != nil {
+	ctx := context.Background()
+	if err := mcpManager.ConnectServers(ctx, b.cfg.Tools.MCPServers); err != nil {
 		return nil, err
 	}
 
