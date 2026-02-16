@@ -64,7 +64,7 @@
 | 定时任务 (Cron) | ✅ | ✅ | 相同的调度机制 |
 | 子代理 (Subagent) | ✅ | ✅ | 相同的后台任务模式 |
 | 流式响应 | ✅ | ✅ | 两者都支持实时输出 |
-| Agent Social Network | ❌ | ✅ | nanobot 支持 Moltbook 等 |
+| Agent Social Network | ✅ | ✅ | 两者都支持 Moltbook 社交网络 |
 | 语音转写 | ❌ | ✅ | nanobot 支持 Groq Whisper |
 | Docker 支持 | ❌ | ✅ | nanobot 提供镜像 |
 
@@ -683,7 +683,77 @@ lingguard status
 
 ---
 
-## 7. 开发路线图
+## 7. MCP 支持
+
+### 7.1 概述
+
+LingGuard 支持 Model Context Protocol (MCP)，可以连接外部工具服务器扩展能力。
+
+### 7.2 传输方式
+
+| 传输 | 文件 | 说明 |
+|------|------|------|
+| Stdio | `internal/tools/mcp.go` | 通过子进程启动 MCP 服务器 |
+| HTTP | `internal/tools/mcp_http.go` | 连接 HTTP/Streamable HTTP 端点 |
+
+### 7.3 核心组件
+
+```go
+// MCPClient - Stdio 传输客户端
+type MCPClient struct {
+    cmd        *exec.Cmd
+    stdin      io.WriteCloser
+    stdout     *bufio.Reader
+    requestID  int64
+    tools      map[string]*MCPToolDefinition
+}
+
+// MCPHTTPClient - HTTP 传输客户端
+type MCPHTTPClient struct {
+    client    *http.Client
+    baseURL   string
+    sessionID string
+    requestID int64
+}
+
+// MCPManager - 管理多个 MCP 服务器连接
+type MCPManager struct {
+    clients map[string]MCPClientInterface
+    tools   map[string]Tool
+}
+```
+
+### 7.4 配置示例
+
+```json
+{
+  "tools": {
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
+      },
+      "remote": {
+        "url": "http://localhost:8765/mcp"
+      }
+    }
+  }
+}
+```
+
+### 7.5 与 nanobot 对比
+
+| 方面 | LingGuard | nanobot |
+|------|-----------|---------|
+| Stdio 传输 | ✅ | ✅ |
+| HTTP 传输 | ✅ MCPHTTPClient | ✅ streamablehttp |
+| SSE 传输 | 预留 SSEClient | ✅ |
+| 工具包装 | MCPToolWrapper | 相同 |
+| 命名格式 | mcp_{server}_{tool} | 相同 |
+
+---
+
+## 8. 开发路线图
 
 ### Phase 1-4: 已完成 ✅
 
@@ -697,6 +767,9 @@ lingguard status
 | 文件持久化记忆 | ✅ |
 | 子代理系统 | ✅ |
 | 定时任务 | ✅ |
+| MCP Stdio 传输 | ✅ |
+| MCP HTTP 传输 | ✅ |
+| Moltbook 技能 | ✅ |
 
 ### Phase 5: 计划中
 
@@ -709,7 +782,7 @@ lingguard status
 
 ---
 
-## 8. 技术选型
+## 9. 技术选型
 
 | 组件 | 选型 | 说明 |
 |------|------|------|
@@ -721,8 +794,123 @@ lingguard status
 
 ---
 
-## 9. 参考资料
+## 10. Agent Social Network
+
+Agent Social Network 包含两层含义：
+
+### 9.1 Spawn 子代理（Agent-to-Agent 协作）
+
+子代理可以在后台异步执行任务，实现 Agent 之间的协作：
+
+```go
+// internal/subagent/manager.go
+
+type SubagentManager struct {
+    provider     providers.Provider
+    toolRegistry *tools.Registry
+    tasks        map[string]*Subagent
+    notify       chan *Subagent  // 完成通知
+}
+
+// 创建子代理
+func (m *SubagentManager) Spawn(task, context string) *Subagent
+```
+
+**特点：**
+- 后台 goroutine 执行，不阻塞主代理
+- 独立的工具白名单（无 message、task_spawn）
+- 最多 15 次迭代
+- 完成后通过 channel 通知主代理
+
+### 9.2 Moltbook 社交网络（Agent 社交平台）
+
+Moltbook 是一个 AI Agent 专属的社交网络平台，LingGuard 提供完整的技能集成：
+
+**文件结构：**
+```
+skills/builtin/moltbook/
+├── SKILL.md        # 主要 API 文档
+├── HEARTBEAT.md    # 定期检查指南
+├── MESSAGING.md    # 私信功能
+├── RULES.md        # 社区规则
+└── package.json    # 元数据
+```
+
+**支持的功能：**
+| 功能 | API | 说明 |
+|------|-----|------|
+| 注册认证 | `POST /agents/register` | 创建账号并获取 API Key |
+| 发布帖子 | `POST /posts` | 发布内容到社区 |
+| 评论回复 | `POST /posts/{id}/comments` | 评论和回复 |
+| 投票 | `POST /posts/{id}/upvote` | 点赞/踩 |
+| 社区 | `POST /submolts` | 创建和订阅社区 |
+| 关注 | `POST /agents/{name}/follow` | 关注其他 Agent |
+| 搜索 | `GET /search?q=...` | 语义搜索 |
+| 私信 | `POST /agents/dm/request` | 发起私信 |
+
+**使用方式：**
+```
+# Agent 通过 skill 工具加载 Moltbook 技能
+skill --name moltbook
+
+# 然后可以使用 curl 调用 API
+curl -X POST https://www.moltbook.com/api/v1/posts \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"submolt": "general", "title": "Hello!", "content": "..."}'
+```
+
+### 9.3 与 nanobot 对比
+
+| 方面 | LingGuard | nanobot |
+|------|-----------|---------|
+| Spawn 子代理 | ✅ goroutine | ✅ asyncio |
+| Moltbook 技能 | ✅ 完整 | ✅ 完整 |
+| 技能加载方式 | 渐进式（按需） | 一次性加载 |
+
+---
+
+## 11. 内置技能
+
+| 技能 | 目录 | 描述 |
+|------|------|------|
+| weather | `skills/builtin/weather/` | 天气查询 (wttr.in) |
+| git-workflow | `skills/builtin/git-workflow/` | Git 工作流自动化 |
+| code-review | `skills/builtin/code-review/` | 代码审查指南 |
+| file | `skills/builtin/file/` | 文件操作指南 |
+| system | `skills/builtin/system/` | 系统操作指南 |
+| moltbook | `skills/builtin/moltbook/` | AI Agent 社交网络 |
+
+### Moltbook 技能
+
+Moltbook 是一个 AI Agent 社交网络平台，LingGuard 集成了完整的 Moltbook 技能：
+
+**文件结构：**
+```
+skills/builtin/moltbook/
+├── SKILL.md        # 主要 API 文档
+├── HEARTBEAT.md    # 定期检查指南
+├── MESSAGING.md    # 私信功能文档
+├── RULES.md        # 社区规则
+└── package.json    # 技能元数据
+```
+
+**功能支持：**
+- 注册和认证
+- 发布、评论、投票
+- 创建和订阅社区 (Submolts)
+- 关注其他 Agent
+- 语义搜索
+- 私信系统
+- 心跳集成
+
+---
+
+## 12. 参考资料
 
 - [nanobot](https://github.com/HKUDS/nanobot) - 参考架构设计
 - [OpenAI API](https://platform.openai.com/docs/api-reference) - LLM API规范
+- [Anthropic API](https://docs.anthropic.com/) - Claude API 规范
 - [飞书开放平台](https://open.feishu.cn/document/) - 飞书开发文档
+- [MCP 规范](https://modelcontextprotocol.io/) - Model Context Protocol
+- [Moltbook](https://www.moltbook.com/) - AI Agent 社交网络
