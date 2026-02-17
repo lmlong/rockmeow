@@ -104,7 +104,7 @@ func (f *FeishuChannel) Start(ctx context.Context) error {
 				return
 			default:
 				if err := f.wsClient.Start(f.ctx); err != nil {
-					logger.Warn("Feishu WebSocket error: %v, reconnecting in 5s...", err)
+					logger.Warn("Feishu WebSocket error, reconnecting in 5s...", "error", err)
 					time.Sleep(5 * time.Second)
 				}
 			}
@@ -159,7 +159,7 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 
 	// Deduplication check
 	if f.isProcessed(messageID) {
-		logger.Debug("Skipping duplicate message: %s", messageID)
+		logger.Debug("Skipping duplicate message", "messageID", messageID)
 		return nil
 	}
 	f.markProcessed(messageID)
@@ -180,7 +180,7 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 
 	// Permission check
 	if len(f.allowMap) > 0 && !f.allowMap[senderID] {
-		logger.Warn("Access denied for sender %s on channel feishu. Add to allowFrom list to grant access.", senderID)
+		logger.Warn("Access denied on channel feishu. Add to allowFrom list to grant access.", "sender", senderID)
 		return nil
 	}
 
@@ -229,7 +229,7 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 		},
 	}
 
-	logger.Debug("Received message from %s (chat_type=%s): %s", senderID, chatType, channelMsg.Content)
+	logger.Debug("Received message", "sender", senderID, "chatType", chatType, "content", truncateLog(channelMsg.Content, 100))
 
 	// 检查是否支持流式处理
 	if f.streamingHandler != nil {
@@ -239,7 +239,7 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 	// Call handler (non-streaming fallback)
 	reply, err := f.handler.HandleMessage(ctx, channelMsg)
 	if err != nil {
-		logger.Error("Handler error: %v", err)
+		logger.Error("Handler error", "error", err)
 		return err
 	}
 
@@ -309,7 +309,7 @@ func (f *FeishuChannel) handleMessageStream(ctx context.Context, msg *Message, r
 			}
 
 		case stream.EventError:
-			logger.Error("Stream error: %v", event.Error)
+			logger.Error("Stream error", "error", event.Error)
 			errorContent := contentBuilder.String() + fmt.Sprintf("\n\n❌ 错误: %s", event.Error.Error())
 			if messageID == "" {
 				f.sendReply(ctx, replyTo, errorContent)
@@ -339,14 +339,14 @@ func (f *FeishuChannel) addReaction(messageID, emojiType string) {
 
 	resp, err := f.client.Im.MessageReaction.Create(context.Background(), req)
 	if err != nil {
-		logger.Debug("Failed to add reaction: %v", err)
+		logger.Debug("Failed to add reaction", "error", err)
 		return
 	}
 
 	if resp.Code != 0 {
-		logger.Debug("Failed to add reaction: code=%d, msg=%s", resp.Code, resp.Msg)
+		logger.Debug("Failed to add reaction", "code", resp.Code, "msg", resp.Msg)
 	} else {
-		logger.Debug("Added %s reaction to message %s", emojiType, messageID)
+		logger.Debug("Added reaction to message", "emoji", emojiType, "messageID", messageID)
 	}
 }
 
@@ -392,16 +392,16 @@ func (f *FeishuChannel) sendReply(ctx context.Context, receiveID, content string
 
 	resp, err := f.client.Im.Message.Create(ctx, req)
 	if err != nil {
-		logger.Error("Failed to send reply: %v", err)
+		logger.Error("Failed to send reply", "error", err)
 		return err
 	}
 
 	if resp.Code != 0 {
-		logger.Error("Failed to send reply: code=%d, msg=%s", resp.Code, resp.Msg)
+		logger.Error("Failed to send reply", "code", resp.Code, "msg", resp.Msg)
 		return fmt.Errorf("send message failed: %s", resp.Msg)
 	}
 
-	logger.Debug("Reply sent successfully to %s", receiveID)
+	logger.Debug("Reply sent successfully", "to", receiveID)
 	return nil
 }
 
@@ -446,16 +446,16 @@ func (f *FeishuChannel) sendReplyAsync(ctx context.Context, receiveID, content s
 
 	resp, err := f.client.Im.Message.Create(ctx, req)
 	if err != nil {
-		logger.Error("Failed to send reply: %v", err)
+		logger.Error("Failed to send reply", "error", err)
 		return "", err
 	}
 
 	if resp.Code != 0 {
-		logger.Error("Failed to send reply: code=%d, msg=%s", resp.Code, resp.Msg)
+		logger.Error("Failed to send reply", "code", resp.Code, "msg", resp.Msg)
 		return "", fmt.Errorf("send message failed: %s", resp.Msg)
 	}
 
-	logger.Debug("Reply sent successfully to %s, message_id=%s", receiveID, safeString(resp.Data.MessageId))
+	logger.Debug("Reply sent successfully", "to", receiveID, "messageID", safeString(resp.Data.MessageId))
 	return safeString(resp.Data.MessageId), nil
 }
 
@@ -492,16 +492,16 @@ func (f *FeishuChannel) updateReply(ctx context.Context, messageID, content stri
 
 	resp, err := f.client.Im.Message.Patch(ctx, req)
 	if err != nil {
-		logger.Debug("Failed to update reply: %v", err)
+		logger.Debug("Failed to update reply", "error", err)
 		return err
 	}
 
 	if resp.Code != 0 {
-		logger.Debug("Failed to update reply: code=%d, msg=%s", resp.Code, resp.Msg)
+		logger.Debug("Failed to update reply", "code", resp.Code, "msg", resp.Msg)
 		return fmt.Errorf("update message failed: %s", resp.Msg)
 	}
 
-	logger.Debug("Reply updated successfully, message_id=%s", messageID)
+	logger.Debug("Reply updated successfully", "messageID", messageID)
 	return nil
 }
 
@@ -557,6 +557,14 @@ func safeString(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// truncateLog 截断日志内容
+func truncateLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // escapeJSONString 转义 JSON 字符串中的特殊字符

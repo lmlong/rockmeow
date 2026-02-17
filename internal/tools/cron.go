@@ -157,7 +157,7 @@ func (t *CronTool) addJob(name, scheduleStr, message, timezone string) (string, 
 	var opts []cron.JobOption
 	if w, ok := t.service.(*CronServiceWrapper); ok && w.Channel != "" {
 		opts = append(opts, cron.WithDeliver(w.Channel, w.ChannelTo))
-		logger.Debug("CronTool: setting deliver: channel=%s, to=%s", w.Channel, w.ChannelTo)
+		logger.Debug("CronTool setting deliver", "channel", w.Channel, "to", w.ChannelTo)
 	}
 
 	job, err := t.service.AddJob(name, *schedule, message, opts...)

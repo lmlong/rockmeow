@@ -54,7 +54,7 @@ func (c *MCPHTTPClient) Connect(ctx context.Context) error {
 		return fmt.Errorf("list MCP tools: %w", err)
 	}
 
-	logger.Info("MCP HTTP server '%s': connected, %d tools registered", c.serverName, len(c.tools))
+	logger.Info("MCP HTTP server connected", "server", c.serverName, "tools", len(c.tools))
 	return nil
 }
 
@@ -143,8 +143,11 @@ func (c *MCPHTTPClient) initialize(ctx context.Context) error {
 		return fmt.Errorf("parse initialize result: %w", err)
 	}
 
-	logger.Debug("MCP HTTP server '%s': initialized (protocol=%s, server=%s/%s)",
-		c.serverName, initResult.ProtocolVersion, initResult.ServerInfo.Name, initResult.ServerInfo.Version)
+	logger.Debug("MCP HTTP server initialized",
+		"server", c.serverName,
+		"protocol", initResult.ProtocolVersion,
+		"serverName", initResult.ServerInfo.Name,
+		"serverVersion", initResult.ServerInfo.Version)
 
 	return nil
 }

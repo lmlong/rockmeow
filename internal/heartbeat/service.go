@@ -96,7 +96,7 @@ func (s *Service) Start() error {
 
 	go s.runLoop()
 
-	logger.Info("Heartbeat service started (interval: %v)", s.config.Interval)
+	logger.Info("Heartbeat service started", "interval", s.config.Interval)
 	return nil
 }
 
@@ -172,16 +172,16 @@ func (s *Service) tick() {
 	if err != nil {
 		s.lastStatus = "error"
 		s.lastResponse = err.Error()
-		logger.Error("Heartbeat: failed after %v: %v", duration, err)
+		logger.Error("Heartbeat failed", "duration", duration, "error", err)
 	} else {
 		s.lastResponse = response
 		// 检查是否包含 HEARTBEAT_OK
 		if strings.Contains(strings.ToUpper(response), HeartbeatOKToken) {
 			s.lastStatus = "ok"
-			logger.Info("Heartbeat: OK (no action needed) - %v", duration)
+			logger.Info("Heartbeat OK (no action needed)", "duration", duration)
 		} else {
 			s.lastStatus = "completed"
-			logger.Info("Heartbeat: completed task - %v", duration)
+			logger.Info("Heartbeat completed task", "duration", duration)
 		}
 	}
 	s.mu.Unlock()
@@ -199,7 +199,7 @@ func (s *Service) readHeartbeatFile(dir string) string {
 	content, err := os.ReadFile(heartbeatPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.Debug("Heartbeat: failed to read HEARTBEAT.md: %v", err)
+			logger.Debug("Heartbeat failed to read HEARTBEAT.md", "error", err)
 		}
 		return ""
 	}

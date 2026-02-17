@@ -61,12 +61,12 @@ func NewAgent(cfg *config.AgentsConfig, provider providers.Provider, skillsLoade
 
 		memStore = memory.NewFileStore(memDir)
 		if err := memStore.Init(); err != nil {
-			logger.Warn("Failed to init file memory store: %v, using in-memory", err)
+			logger.Warn("Failed to init file memory store, using in-memory", "error", err)
 			sessionStore = memory.NewMemoryStore()
 		} else {
 			sessionStore = memStore
 			memBuilder = memory.NewContextBuilder(memStore)
-			logger.Info("File-based memory store initialized: %s", memDir)
+			logger.Info("File-based memory store initialized", "path", memDir)
 		}
 	} else {
 		// 使用内存存储

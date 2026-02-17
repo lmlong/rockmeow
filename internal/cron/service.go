@@ -57,7 +57,7 @@ func (s *Service) Start() error {
 	s.running = true
 	s.armTimer()
 
-	logger.Info("Cron service started with %d jobs", len(s.store.Jobs))
+	logger.Info("Cron service started", "jobs", len(s.store.Jobs))
 	return nil
 }
 
@@ -92,7 +92,7 @@ func (s *Service) loadStore() error {
 	}
 
 	if err := json.Unmarshal(data, s.store); err != nil {
-		logger.Warn("Failed to parse cron store: %v", err)
+		logger.Warn("Failed to parse cron store", "error", err)
 		s.store = &CronStore{Version: 1}
 		return nil
 	}
@@ -154,7 +154,7 @@ func parseCronNextRun(expr, tz string, nowMs int64) int64 {
 		var err error
 		loc, err = time.LoadLocation(tz)
 		if err != nil {
-			logger.Warn("Invalid timezone '%s': %v, using local time", tz, err)
+			logger.Warn("Invalid timezone, using local time", "timezone", tz, "error", err)
 			loc = time.Local
 		}
 	}
@@ -166,7 +166,7 @@ func parseCronNextRun(expr, tz string, nowMs int64) int64 {
 	// 创建带时区的 cron 调度器
 	cronSchedule, err := parser.Parse(expr)
 	if err != nil {
-		logger.Warn("Invalid cron expression '%s': %v", expr, err)
+		logger.Warn("Invalid cron expression", "expr", expr, "error", err)
 		return 0
 	}
 
@@ -255,7 +255,7 @@ func (s *Service) onTimer() {
 // executeJob 执行单个任务
 func (s *Service) executeJob(job *CronJob) {
 	startMs := nowMs()
-	logger.Info("Cron: executing job '%s' (%s)", job.Name, job.ID)
+	logger.Info("Cron executing job", "name", job.Name, "id", job.ID)
 
 	var response string
 	var err error
@@ -267,12 +267,12 @@ func (s *Service) executeJob(job *CronJob) {
 	if err != nil {
 		job.State.LastStatus = JobStatusError
 		job.State.LastError = err.Error()
-		logger.Error("Cron: job '%s' failed: %v", job.Name, err)
+		logger.Error("Cron job failed", "name", job.Name, "error", err)
 	} else {
 		job.State.LastStatus = JobStatusOK
 		job.State.LastError = ""
 		job.State.LastResponse = response
-		logger.Info("Cron: job '%s' completed", job.Name)
+		logger.Info("Cron job completed", "name", job.Name)
 	}
 
 	job.State.LastRunAtMs = startMs
@@ -385,7 +385,7 @@ func (s *Service) AddJob(name string, schedule CronSchedule, message string, opt
 	s.saveStore()
 	s.armTimer()
 
-	logger.Info("Cron: added job '%s' (%s)", name, job.ID)
+	logger.Info("Cron added job", "name", name, "id", job.ID)
 	return job, nil
 }
 
@@ -424,7 +424,7 @@ func (s *Service) RemoveJob(id string) bool {
 	if removed {
 		s.saveStore()
 		s.armTimer()
-		logger.Info("Cron: removed job %s", id)
+		logger.Info("Cron removed job", "id", id)
 	}
 
 	return removed

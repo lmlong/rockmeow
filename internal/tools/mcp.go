@@ -170,7 +170,7 @@ func (c *MCPClient) Connect(ctx context.Context) error {
 		return fmt.Errorf("list MCP tools: %w", err)
 	}
 
-	logger.Info("MCP server '%s': connected, %d tools registered", c.serverName, len(c.tools))
+	logger.Info("MCP server connected", "server", c.serverName, "tools", len(c.tools))
 	return nil
 }
 
@@ -221,7 +221,7 @@ func (c *MCPClient) sendRequest(method string, params interface{}) (json.RawMess
 		Params:  params,
 	}
 
-	logger.Debug("MCP: sending request method=%s id=%d", method, id)
+	logger.Debug("MCP sending request", "method", method, "id", id)
 
 	if err := c.encoder.Encode(req); err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
@@ -242,20 +242,20 @@ func (c *MCPClient) sendRequest(method string, params interface{}) (json.RawMess
 
 		// Try to parse as JSON
 		if err := json.Unmarshal([]byte(line), &resp); err != nil {
-			logger.Debug("MCP: skipping non-JSON line: %s", line)
+			logger.Debug("MCP skipping non-JSON line", "line", line)
 			continue
 		}
 
 		// Check if this response matches our request ID
 		if resp.ID != id {
-			logger.Debug("MCP: skipping response with wrong ID %d (expected %d)", resp.ID, id)
+			logger.Debug("MCP skipping response with wrong ID", "got", resp.ID, "expected", id)
 			continue
 		}
 
 		break
 	}
 
-	logger.Debug("MCP: received response id=%d error=%v", resp.ID, resp.Error)
+	logger.Debug("MCP received response", "id", resp.ID, "error", resp.Error)
 
 	if resp.Error != nil {
 		return nil, fmt.Errorf("RPC error %d: %s", resp.Error.Code, resp.Error.Message)
@@ -292,8 +292,11 @@ func (c *MCPClient) initialize() error {
 		return fmt.Errorf("parse initialize result: %w", err)
 	}
 
-	logger.Info("MCP server '%s': initialized (protocol=%s, server=%s/%s)",
-		c.serverName, initResult.ProtocolVersion, initResult.ServerInfo.Name, initResult.ServerInfo.Version)
+	logger.Info("MCP server initialized",
+		"server", c.serverName,
+		"protocol", initResult.ProtocolVersion,
+		"serverName", initResult.ServerInfo.Name,
+		"serverVersion", initResult.ServerInfo.Version)
 
 	// Send initialized notification (no ID, no response expected)
 	notif := map[string]interface{}{
@@ -431,12 +434,12 @@ func (m *MCPManager) ConnectServers(ctx context.Context, servers map[string]conf
 			// Stdio transport
 			client = NewMCPClient(name, cfg)
 		} else {
-			logger.Warn("MCP server '%s': no command or URL configured, skipping", name)
+			logger.Warn("MCP server has no command or URL configured, skipping", "server", name)
 			continue
 		}
 
 		if err := client.Connect(ctx); err != nil {
-			logger.Error("MCP server '%s': failed to connect: %v", name, err)
+			logger.Error("MCP server failed to connect", "server", name, "error", err)
 			continue
 		}
 
@@ -447,7 +450,7 @@ func (m *MCPManager) ConnectServers(ctx context.Context, servers map[string]conf
 		for _, toolDef := range client.GetTools() {
 			wrapper := NewMCPToolWrapper(client, name, toolDef.Name, toolDef.Description, toolDef.InputSchema)
 			m.tools[wrapper.Name()] = wrapper
-			logger.Debug("MCP: registered tool '%s' from server '%s'", wrapper.Name(), name)
+			logger.Debug("MCP registered tool", "tool", wrapper.Name(), "server", name)
 		}
 		m.mu.Unlock()
 	}

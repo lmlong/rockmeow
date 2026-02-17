@@ -61,7 +61,7 @@ func (l *Loader) ListSkills() ([]*Skill, error) {
 		}
 		builtinSkills, err := l.loadFromDir(dir)
 		if err != nil {
-			logger.Warn("failed to load builtin skills from %s: %v", dir, err)
+			logger.Warn("Failed to load builtin skills", "dir", dir, "error", err)
 			continue
 		}
 		// 去重：只添加未 seen 的技能

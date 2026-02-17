@@ -112,7 +112,7 @@ func (r *Registry) GetDefault() (Provider, bool) {
 func (r *Registry) InitFromConfig(cfg *config.Config) error {
 	for name, pc := range cfg.Providers {
 		if pc.APIKey == "" {
-			logger.Debug("Skipping provider %s: no API key", name)
+			logger.Debug("Skipping provider: no API key", "name", name)
 			continue
 		}
 
@@ -165,7 +165,7 @@ func (r *Registry) InitFromConfig(cfg *config.Config) error {
 		}
 
 		r.Register(name, p, spec)
-		logger.Info("Registered provider: %s (%s)", name, spec.DisplayName)
+		logger.Info("Registered provider", "name", name, "display", spec.DisplayName)
 	}
 
 	if len(r.providers) == 0 {

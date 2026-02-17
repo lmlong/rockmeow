@@ -214,7 +214,7 @@ func (q *QQChannel) connectionLoop() {
 			return
 		default:
 			if err := q.connect(); err != nil {
-				logger.Warn("QQ WebSocket connection failed: %v, reconnecting in 5s...", err)
+				logger.Warn("QQ WebSocket connection failed, reconnecting in 5s...", "error", err)
 				time.Sleep(5 * time.Second)
 				continue
 			}
@@ -273,13 +273,13 @@ func (q *QQChannel) messageLoop() {
 			_, message, err := q.conn.ReadMessage()
 			if err != nil {
 				if q.running {
-					logger.Warn("QQ WebSocket read error: %v", err)
+					logger.Warn("QQ WebSocket read error", "error", err)
 				}
 				return
 			}
 
 			if err := q.handlePayload(message); err != nil {
-				logger.Warn("QQ payload handling error: %v", err)
+				logger.Warn("QQ payload handling error", "error", err)
 			}
 		}
 	}
@@ -325,7 +325,7 @@ func (q *QQChannel) handlePayload(data []byte) error {
 		return fmt.Errorf("invalid session")
 
 	default:
-		logger.Debug("QQ unknown opcode: %d", payload.Op)
+		logger.Debug("QQ unknown opcode", "opcode", payload.Op)
 	}
 
 	return nil
@@ -340,7 +340,7 @@ func (q *QQChannel) handleDispatch(eventType string, data json.RawMessage) error
 			return fmt.Errorf("unmarshal ready: %w", err)
 		}
 		q.sessionID = ready.SessionID
-		logger.Info("QQ bot ready: %s (session: %s)", ready.User.Username, ready.SessionID[:8])
+		logger.Info("QQ bot ready", "username", ready.User.Username, "session", ready.SessionID[:8])
 
 	case qqEventC2CMessageCreate, qqEventDirectMessage:
 		var msg qqC2CMessage
@@ -350,7 +350,7 @@ func (q *QQChannel) handleDispatch(eventType string, data json.RawMessage) error
 		go q.handleMessage(&msg)
 
 	default:
-		logger.Debug("QQ unhandled event: %s", eventType)
+		logger.Debug("QQ unhandled event", "event", eventType)
 	}
 	return nil
 }
@@ -390,7 +390,7 @@ func (q *QQChannel) startHeartbeat() {
 				return
 			case <-q.heartbeatTicker.C:
 				if err := q.sendHeartbeat(); err != nil {
-					logger.Warn("QQ heartbeat failed: %v", err)
+					logger.Warn("QQ heartbeat failed", "error", err)
 					return
 				}
 				// Check if we're receiving acks
@@ -440,7 +440,7 @@ func (q *QQChannel) sendPayload(payload *qqPayload) error {
 func (q *QQChannel) handleMessage(msg *qqC2CMessage) {
 	// Deduplication check
 	if q.isProcessed(msg.ID) {
-		logger.Debug("Skipping duplicate QQ message: %s", msg.ID)
+		logger.Debug("Skipping duplicate QQ message", "id", msg.ID)
 		return
 	}
 	q.markProcessed(msg.ID)
@@ -457,7 +457,7 @@ func (q *QQChannel) handleMessage(msg *qqC2CMessage) {
 
 	// Permission check
 	if len(q.allowMap) > 0 && !q.allowMap[userID] {
-		logger.Warn("Access denied for sender %s on channel qq. Add to allowFrom list to grant access.", userID)
+		logger.Warn("Access denied on channel qq. Add to allowFrom list to grant access.", "sender", userID)
 		return
 	}
 
@@ -475,7 +475,7 @@ func (q *QQChannel) handleMessage(msg *qqC2CMessage) {
 		},
 	}
 
-	logger.Debug("Received QQ message from %s: %s", userID, content)
+	logger.Debug("Received QQ message", "sender", userID, "content", truncateContent(content, 100))
 
 	// 检查是否支持流式处理
 	if q.streamingHandler != nil {
@@ -486,14 +486,14 @@ func (q *QQChannel) handleMessage(msg *qqC2CMessage) {
 	// Call handler (non-streaming fallback)
 	reply, err := q.handler.HandleMessage(q.ctx, channelMsg)
 	if err != nil {
-		logger.Error("Handler error: %v", err)
+		logger.Error("Handler error", "error", err)
 		return
 	}
 
 	// Send reply
 	if reply != "" {
 		if err := q.sendC2CMessage(q.ctx, userID, reply); err != nil {
-			logger.Error("Failed to send QQ reply: %v", err)
+			logger.Error("Failed to send QQ reply", "error", err)
 		}
 	}
 }
@@ -528,12 +528,12 @@ func (q *QQChannel) handleMessageStream(ctx context.Context, msg *Message, userI
 			content := contentBuilder.String()
 			if content != "" {
 				if err := q.sendC2CMessage(ctx, userID, content); err != nil {
-					logger.Error("Failed to send QQ message: %v", err)
+					logger.Error("Failed to send QQ message", "error", err)
 				}
 			}
 
 		case stream.EventError:
-			logger.Error("Stream error: %v", event.Error)
+			logger.Error("Stream error", "error", event.Error)
 			errorContent := contentBuilder.String() + fmt.Sprintf("\n\n错误: %s", event.Error.Error())
 			if errorContent != "" && errorContent != lastContent {
 				q.sendC2CMessage(ctx, userID, errorContent)
@@ -542,7 +542,7 @@ func (q *QQChannel) handleMessageStream(ctx context.Context, msg *Message, userI
 	})
 
 	if err != nil {
-		logger.Error("Stream handling error: %v", err)
+		logger.Error("Stream handling error", "error", err)
 	}
 }
 
@@ -588,7 +588,7 @@ func (q *QQChannel) sendC2CMessage(ctx context.Context, openid string, content s
 		return fmt.Errorf("QQ API error: status=%d, body=%s", resp.StatusCode, string(respBody))
 	}
 
-	logger.Debug("QQ message sent to %s", openid)
+	logger.Debug("QQ message sent", "to", openid)
 	return nil
 }
 
@@ -624,4 +624,12 @@ func (q *QQChannel) markProcessed(messageID string) {
 func mustMarshal(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data
+}
+
+// truncateContent 截断内容用于日志
+func truncateContent(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

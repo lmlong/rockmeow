@@ -36,7 +36,7 @@ func (a *ContextAdapter) SetMessageTool(tool ContextSetter) {
 
 // HandleMessage 实现 MessageHandler 接口
 func (a *ContextAdapter) HandleMessage(ctx context.Context, msg *Message) (string, error) {
-	logger.Debug("ContextAdapter.HandleMessage: Channel=%s, UserID=%s", msg.Channel, msg.UserID)
+	logger.Debug("ContextAdapter.HandleMessage", "channel", msg.Channel, "userID", msg.UserID)
 
 	// 设置 cron 工具的渠道上下文
 	if a.cronWrapper != nil && msg.Channel != "" {
@@ -53,7 +53,7 @@ func (a *ContextAdapter) HandleMessage(ctx context.Context, msg *Message) (strin
 
 // HandleMessageStream 实现 StreamingMessageHandler 接口
 func (a *ContextAdapter) HandleMessageStream(ctx context.Context, msg *Message, callback stream.StreamCallback) error {
-	logger.Debug("ContextAdapter.HandleMessageStream: Channel=%s, UserID=%s", msg.Channel, msg.UserID)
+	logger.Debug("ContextAdapter.HandleMessageStream", "channel", msg.Channel, "userID", msg.UserID)
 
 	// 设置 cron 工具的渠道上下文
 	if a.cronWrapper != nil && msg.Channel != "" {
