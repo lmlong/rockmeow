@@ -209,6 +209,16 @@ func (a *Agent) buildContext(sessionID string) ([]llm.Message, error) {
 	// 构建系统提示
 	systemPrompt := a.config.SystemPrompt
 
+	// 添加工作目录信息
+	if a.config.Workspace != "" {
+		workspaceInfo := fmt.Sprintf("工作目录: %s\n\n重要规则:\n- 所有文件操作都应该相对于工作目录进行\n- git clone 时先 cd %s\n- 下载的代码应该放在工作目录下", a.config.Workspace, a.config.Workspace)
+		if systemPrompt != "" {
+			systemPrompt = systemPrompt + "\n\n" + workspaceInfo
+		} else {
+			systemPrompt = workspaceInfo
+		}
+	}
+
 	// 添加记忆上下文（参考 nanobot）
 	if a.memoryBuilder != nil {
 		recentDays := 3
