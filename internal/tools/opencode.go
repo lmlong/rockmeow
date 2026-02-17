@@ -334,44 +334,109 @@ func (c *OpenCodeClient) Grep(ctx context.Context, pattern, directory string) ([
 	return result, nil
 }
 
-// SubscribeEvents subscribes to OpenCode SSE event stream
+// SubscribeEvents subscribes to OpenCode SSE event stream with auto-reconnect
 // Returns a channel for events and a cancel function
 func (c *OpenCodeClient) SubscribeEvents(ctx context.Context, sessionID string) (<-chan SSEEvent, context.CancelFunc, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	eventChan := make(chan SSEEvent, 100)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/event", nil)
-	if err != nil {
-		cancel()
-		return nil, nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "text/event-stream")
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		cancel()
-		return nil, nil, fmt.Errorf("connect SSE: %w", err)
-	}
-
 	go func() {
 		defer close(eventChan)
-		defer resp.Body.Close()
 		defer cancel()
 
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
+		consecutiveErrors := 0
+		maxConsecutiveErrors := 3
+
+		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
+			}
+
+			// Connect to SSE stream
+			connectCtx, connectCancel := context.WithCancel(ctx)
+
+			req, err := http.NewRequestWithContext(connectCtx, "GET", c.baseURL+"/event", nil)
+			if err != nil {
+				connectCancel()
+				consecutiveErrors++
+				if consecutiveErrors >= maxConsecutiveErrors {
+					logger.Error("SSE connection failed too many times", "errors", consecutiveErrors)
+					return
+				}
+				time.Sleep(time.Duration(consecutiveErrors) * time.Second)
+				continue
+			}
+			req.Header.Set("Accept", "text/event-stream")
+
+			resp, err := c.client.Do(req)
+			if err != nil {
+				connectCancel()
+				consecutiveErrors++
+				logger.Warn("SSE connection failed, retrying", "error", err, "attempt", consecutiveErrors)
+				if consecutiveErrors >= maxConsecutiveErrors {
+					logger.Error("SSE connection failed too many times", "errors", consecutiveErrors)
+					return
+				}
+				time.Sleep(time.Duration(consecutiveErrors) * time.Second)
+				continue
+			}
+
+			// Connection successful, reset error counter
+			consecutiveErrors = 0
+			logger.Debug("SSE connected to OpenCode")
+
+			// Process events with timeout detection
+			lastEventTime := time.Now()
+			timeout := 60 * time.Second // No event for 60 seconds = reconnect
+
+			// Start timeout checker
+			go func() {
+				ticker := time.NewTicker(10 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-connectCtx.Done():
+						return
+					case <-ticker.C:
+						if time.Since(lastEventTime) > timeout {
+							logger.Warn("SSE timeout, reconnecting", "idle", time.Since(lastEventTime).Seconds())
+							connectCancel()
+							return
+						}
+					}
+				}
+			}()
+
+			// Read events
+			scanner := bufio.NewScanner(resp.Body)
+			for scanner.Scan() {
+				select {
+				case <-connectCtx.Done():
+					resp.Body.Close()
+					break
+				default:
+				}
+
 				line := scanner.Text()
 				if strings.HasPrefix(line, "data: ") {
+					lastEventTime = time.Now()
 					data := strings.TrimPrefix(line, "data: ")
 					var event SSEEvent
 					if err := json.Unmarshal([]byte(data), &event); err == nil {
 						// Filter to session-specific events if sessionID provided
 						if sessionID != "" {
-							if props, ok := event.Properties["sessionID"].(string); ok && props != sessionID {
+							// Check sessionID in different locations
+							eventSessionID := ""
+							if sid, ok := event.Properties["sessionID"].(string); ok {
+								eventSessionID = sid
+							} else if part, ok := event.Properties["part"].(map[string]interface{}); ok {
+								if sid, ok := part["sessionID"].(string); ok {
+									eventSessionID = sid
+								}
+							}
+							if eventSessionID != "" && eventSessionID != sessionID {
 								continue
 							}
 						}
@@ -382,6 +447,19 @@ func (c *OpenCodeClient) SubscribeEvents(ctx context.Context, sessionID string) 
 						}
 					}
 				}
+			}
+
+			resp.Body.Close()
+			connectCancel()
+
+			// Check if context is cancelled
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Reconnect after brief pause
+				time.Sleep(1 * time.Second)
+				logger.Debug("SSE reconnecting...")
 			}
 		}
 	}()
@@ -487,6 +565,10 @@ func extractToolDetails(toolName string, input map[string]interface{}) string {
 			}
 		}
 	case "read":
+		// OpenCode uses "filePath"
+		if path, ok := input["filePath"].(string); ok {
+			return path
+		}
 		if path, ok := input["file_path"].(string); ok {
 			return path
 		}
@@ -494,6 +576,9 @@ func extractToolDetails(toolName string, input map[string]interface{}) string {
 			return path
 		}
 	case "write":
+		if path, ok := input["filePath"].(string); ok {
+			return path
+		}
 		if path, ok := input["file_path"].(string); ok {
 			return path
 		}
@@ -501,6 +586,9 @@ func extractToolDetails(toolName string, input map[string]interface{}) string {
 			return path
 		}
 	case "edit":
+		if path, ok := input["filePath"].(string); ok {
+			return path
+		}
 		if path, ok := input["file_path"].(string); ok {
 			return path
 		}
@@ -520,8 +608,8 @@ func extractToolDetails(toolName string, input map[string]interface{}) string {
 			return query
 		}
 	default:
-		// Generic: try common field names
-		for _, key := range []string{"file_path", "path", "command", "query", "pattern", "message"} {
+		// Generic: try common field names (OpenCode uses camelCase)
+		for _, key := range []string{"filePath", "file_path", "path", "command", "query", "pattern", "message"} {
 			if val, ok := input[key].(string); ok && val != "" {
 				return truncateString(val, 80)
 			}
