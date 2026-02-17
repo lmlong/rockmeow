@@ -56,20 +56,23 @@ install-bin: build
 # 打包发布
 package: build
 	@echo "打包发布版本..."
-	mkdir -p dist
+	rm -rf dist
+	mkdir -p dist/pkg
+	# 复制所有文件到打包目录
+	cp -r configs dist/pkg/
+	cp -r scripts dist/pkg/
+	cp -r skills dist/pkg/
 	# Linux amd64
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/$(PROJECT)-linux-amd64 ./$(CMD_DIR)
-	tar -czf dist/$(PROJECT)-$(VERSION)-linux-amd64.tar.gz -C dist $(PROJECT)-linux-amd64 --transform 's|.*|lingguard/|'
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/pkg/$(PROJECT) ./$(CMD_DIR)
+	cd dist && tar -czf $(PROJECT)-$(VERSION)-linux-amd64.tar.gz -C pkg .
+	@echo "已创建: dist/$(PROJECT)-$(VERSION)-linux-amd64.tar.gz"
 	# Linux arm64
-	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/$(PROJECT)-linux-arm64 ./$(CMD_DIR)
-	tar -czf dist/$(PROJECT)-$(VERSION)-linux-arm64.tar.gz -C dist $(PROJECT)-linux-arm64 --transform 's|.*|lingguard/|'
-	# 包含配置和脚本
-	cp -r configs dist/
-	cp -r scripts dist/
-	cp -r skills dist/
-	tar -rf dist/$(PROJECT)-$(VERSION)-linux-amd64.tar.gz -C dist configs scripts skills --transform 's|dist/||'
-	gzip -f dist/$(PROJECT)-$(VERSION)-linux-amd64.tar
-	@echo "发布包已创建: dist/$(PROJECT)-$(VERSION)-linux-amd64.tar.gz"
+	rm dist/pkg/$(PROJECT)
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/pkg/$(PROJECT) ./$(CMD_DIR)
+	cd dist && tar -czf $(PROJECT)-$(VERSION)-linux-arm64.tar.gz -C pkg .
+	@echo "已创建: dist/$(PROJECT)-$(VERSION)-linux-arm64.tar.gz"
+	# 清理临时目录
+	rm -rf dist/pkg
 
 # Docker 构建
 docker:

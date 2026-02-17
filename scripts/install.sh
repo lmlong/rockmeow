@@ -5,7 +5,7 @@
 set -e
 
 # 配置
-PREFIX="${PREFIX:-/usr/local}"
+PREFIX="${PREFIX:-${HOME}/.local}"
 BIN_NAME="lingguard"
 SERVICE_NAME="lingguard"
 CONFIG_DIR="${HOME}/.lingguard"
