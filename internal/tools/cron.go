@@ -39,20 +39,32 @@ func NewCronTool(service CronService) *CronTool {
 func (t *CronTool) Name() string { return "cron" }
 
 func (t *CronTool) Description() string {
-	return `Manage scheduled tasks (cron jobs).
+	return `管理内置定时任务（提醒、日程、周期任务）。
+
+【重要】这是 LingGuard 的内置定时任务系统，不是系统的 crontab！
+
+当用户提到以下关键词时使用此工具：
+- "定时任务"、"有几个定时任务"、"查看定时任务"
+- "提醒"、"设置提醒"、"X分钟后提醒我"
+- "日程"、"计划任务"、"周期任务"
 
 Actions:
-- list: Show all scheduled tasks
-- add: Create a new scheduled task
-- remove: Delete a task
-- enable: Enable a disabled task
-- disable: Disable an enabled task
+- list: 列出所有定时任务
+- add: 创建新的定时任务/提醒
+- remove: 删除任务
+- enable: 启用任务
+- disable: 禁用任务
 
 Schedule formats:
-- every:<duration>  - Repeat every duration (e.g., "every:1h", "every:30m")
-- at:<datetime>     - Run once at specific time (e.g., "at:2024-12-25 09:00")
-- at:<relative>     - Run once after relative time (e.g., "at:in 5m", "at:+1h")
-- cron:<expr>       - Cron expression (e.g., "cron:0 9 * * *")`
+- every:<duration>  - 周期任务 (e.g., "every:1h", "every:30m", "every:24h")
+- at:<datetime>     - 指定时间执行一次 (e.g., "at:2026-02-17 18:00")
+- at:<relative>     - 相对时间 (e.g., "at:in 5m", "at:+1h", "at:in 30m")
+- cron:<expr>       - Cron 表达式 (e.g., "cron:0 9 * * *" 表示每天9点)
+
+Examples:
+- 查看定时任务: {"action": "list"}
+- 5分钟后提醒: {"action": "add", "name": "提醒", "schedule": "at:in 5m", "message": "时间到了！"}
+- 每小时提醒: {"action": "add", "name": "整点报时", "schedule": "every:1h", "message": "整点了"}`
 }
 
 func (t *CronTool) Parameters() map[string]interface{} {
