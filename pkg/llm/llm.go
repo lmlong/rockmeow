@@ -75,6 +75,72 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// UnmarshalJSON 自定义 JSON 反序列化，处理 content 为对象的情况
+// 某些模型（如 Qwen3.5-Plus, DeepSeek R1）的响应中 content 可能是：
+// - string: "普通文本"
+// - object: {"text": "内容", "reasoning": "思考过程"}
+// - array: [{"type": "text", "text": "内容"}]
+func (m *Message) UnmarshalJSON(data []byte) error {
+	// 临时结构体，content 使用 RawMessage 来灵活处理
+	type tempMsg struct {
+		Role       string          `json:"role"`
+		Content    json.RawMessage `json:"content,omitempty"`
+		ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
+		ToolCallID string          `json:"tool_call_id,omitempty"`
+		Name       string          `json:"name,omitempty"`
+	}
+
+	var temp tempMsg
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	m.Role = temp.Role
+	m.ToolCalls = temp.ToolCalls
+	m.ToolCallID = temp.ToolCallID
+	m.Name = temp.Name
+
+	// 处理 content 字段
+	if len(temp.Content) > 0 {
+		// 尝试解析为字符串
+		var strContent string
+		if err := json.Unmarshal(temp.Content, &strContent); err == nil {
+			m.Content = strContent
+		} else {
+			// 尝试解析为对象（Qwen/DeepSeek reasoning 格式）
+			var objContent struct {
+				Text      string `json:"text"`
+				Reasoning string `json:"reasoning"`
+			}
+			if err := json.Unmarshal(temp.Content, &objContent); err == nil {
+				// 使用 text 字段作为内容，reasoning 可以选择性添加
+				if objContent.Text != "" {
+					m.Content = objContent.Text
+				} else if objContent.Reasoning != "" {
+					// 如果只有 reasoning，使用 reasoning 作为内容
+					m.Content = objContent.Reasoning
+				}
+			} else {
+				// 尝试解析为数组（多模态格式）
+				var arrContent []ContentPart
+				if err := json.Unmarshal(temp.Content, &arrContent); err == nil {
+					m.ContentParts = arrContent
+					// 提取文本内容
+					for _, part := range arrContent {
+						if part.Type == "text" && part.Text != "" {
+							m.Content = part.Text
+							break
+						}
+					}
+				}
+				// 如果都失败了，保持 Content 为空
+			}
+		}
+	}
+
+	return nil
+}
+
 // ToolCall 工具调用
 type ToolCall struct {
 	ID       string       `json:"id"`
