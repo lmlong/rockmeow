@@ -2,8 +2,11 @@ package channels
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -193,8 +196,32 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 
 	// Parse message content
 	var content string
+	var mediaPaths []string
+
 	if msgType == "text" {
 		content = f.parseTextContent(msg.Content)
+	} else if msgType == "image" {
+		// 下载图片并保存到本地
+		imagePath, err := f.downloadImage(ctx, msg.Content, safeString(msg.MessageId))
+		if err != nil {
+			logger.Warn("Failed to download image", "error", err)
+			content = "[image: download failed]"
+		} else {
+			mediaPaths = append(mediaPaths, imagePath)
+			content = "[image]"
+			logger.Debug("Downloaded image", "path", imagePath)
+		}
+	} else if msgType == "video" {
+		// 下载视频并保存到本地（部分模型支持）
+		videoPath, err := f.downloadVideo(ctx, msg.Content, safeString(msg.MessageId))
+		if err != nil {
+			logger.Warn("Failed to download video", "error", err)
+			content = "[video: download failed]"
+		} else {
+			mediaPaths = append(mediaPaths, videoPath)
+			content = "[video]"
+			logger.Debug("Downloaded video", "path", videoPath)
+		}
 	} else {
 		content = msgTypeMap[msgType]
 		if content == "" {
@@ -202,7 +229,7 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 		}
 	}
 
-	if content == "" {
+	if content == "" && len(mediaPaths) == 0 {
 		return nil
 	}
 
@@ -217,6 +244,7 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 		ID:        messageID,
 		SessionID: "feishu-" + senderID,
 		Content:   strings.TrimSpace(content),
+		Media:     mediaPaths,
 		Channel:   "feishu",
 		UserID:    replyTo, // Use reply_to as the user ID for delivery
 		Metadata: map[string]any{
@@ -587,6 +615,159 @@ func escapeJSONString(s string) string {
 		}
 	}
 	return result.String()
+}
+
+// downloadImage 下载飞书图片并保存到本地
+func (f *FeishuChannel) downloadImage(ctx context.Context, content *string, messageID string) (string, error) {
+	if content == nil || f.client == nil {
+		return "", fmt.Errorf("invalid parameters")
+	}
+
+	// 解析图片消息内容: {"image_key": "img_xxx"}
+	var imageMsg struct {
+		ImageKey string `json:"image_key"`
+	}
+	if err := json.Unmarshal([]byte(*content), &imageMsg); err != nil {
+		return "", fmt.Errorf("parse image content: %w", err)
+	}
+
+	if imageMsg.ImageKey == "" {
+		return "", fmt.Errorf("empty image_key")
+	}
+
+	// 创建媒体目录
+	home, _ := os.UserHomeDir()
+	mediaDir := filepath.Join(home, ".lingguard", "media")
+	if err := os.MkdirAll(mediaDir, 0755); err != nil {
+		return "", fmt.Errorf("create media dir: %w", err)
+	}
+
+	// 生成文件名
+	ext := ".jpg" // 默认扩展名
+	timestamp := time.Now().UnixNano()
+	filename := fmt.Sprintf("feishu_%d_%s%s", timestamp, messageID[:8], ext)
+	filePath := filepath.Join(mediaDir, filename)
+
+	// 获取图片资源请求
+	req := larkim.NewGetMessageResourceReqBuilder().
+		MessageId(messageID).
+		FileKey(imageMsg.ImageKey).
+		Type("image").
+		Build()
+
+	// 获取图片并直接保存到文件
+	resp, err := f.client.Im.MessageResource.Get(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("get image resource: %w", err)
+	}
+
+	if resp.Code != 0 {
+		return "", fmt.Errorf("get image failed: code=%d, msg=%s", resp.Code, resp.Msg)
+	}
+
+	// 使用 SDK 提供的 WriteFile 方法保存文件
+	if err := resp.WriteFile(filePath); err != nil {
+		return "", fmt.Errorf("write image file: %w", err)
+	}
+
+	return filePath, nil
+}
+
+// downloadVideo 下载飞书视频并保存到本地
+func (f *FeishuChannel) downloadVideo(ctx context.Context, content *string, messageID string) (string, error) {
+	if content == nil || f.client == nil {
+		return "", fmt.Errorf("invalid parameters")
+	}
+
+	// 解析视频消息内容: {"file_key": "file_xxx"}
+	var videoMsg struct {
+		FileKey string `json:"file_key"`
+	}
+	if err := json.Unmarshal([]byte(*content), &videoMsg); err != nil {
+		return "", fmt.Errorf("parse video content: %w", err)
+	}
+
+	if videoMsg.FileKey == "" {
+		return "", fmt.Errorf("empty file_key")
+	}
+
+	// 创建媒体目录
+	home, _ := os.UserHomeDir()
+	mediaDir := filepath.Join(home, ".lingguard", "media")
+	if err := os.MkdirAll(mediaDir, 0755); err != nil {
+		return "", fmt.Errorf("create media dir: %w", err)
+	}
+
+	// 生成文件名
+	ext := ".mp4" // 默认扩展名
+	timestamp := time.Now().UnixNano()
+	filename := fmt.Sprintf("feishu_%d_%s%s", timestamp, messageID[:8], ext)
+	filePath := filepath.Join(mediaDir, filename)
+
+	// 获取视频资源请求
+	req := larkim.NewGetMessageResourceReqBuilder().
+		MessageId(messageID).
+		FileKey(videoMsg.FileKey).
+		Type("file").
+		Build()
+
+	// 获取视频并直接保存到文件
+	resp, err := f.client.Im.MessageResource.Get(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("get video resource: %w", err)
+	}
+
+	if resp.Code != 0 {
+		return "", fmt.Errorf("get video failed: code=%d, msg=%s", resp.Code, resp.Msg)
+	}
+
+	// 使用 SDK 提供的 WriteFile 方法保存文件
+	if err := resp.WriteFile(filePath); err != nil {
+		return "", fmt.Errorf("write video file: %w", err)
+	}
+
+	return filePath, nil
+}
+
+// downloadImageFromBase64 从 base64 数据保存图片（用于发送）
+func (f *FeishuChannel) downloadImageFromBase64(base64Data, mimeType, messageID string) (string, error) {
+	// 创建媒体目录
+	home, _ := os.UserHomeDir()
+	mediaDir := filepath.Join(home, ".lingguard", "media")
+	if err := os.MkdirAll(mediaDir, 0755); err != nil {
+		return "", fmt.Errorf("create media dir: %w", err)
+	}
+
+	// 解码 base64
+	data, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return "", fmt.Errorf("decode base64: %w", err)
+	}
+
+	// 确定扩展名
+	ext := ".bin"
+	switch mimeType {
+	case "image/jpeg", "image/jpg":
+		ext = ".jpg"
+	case "image/png":
+		ext = ".png"
+	case "image/gif":
+		ext = ".gif"
+	case "image/webp":
+		ext = ".webp"
+	}
+
+	// 生成文件名
+	timestamp := time.Now().UnixNano()
+	filename := fmt.Sprintf("feishu_%d_%s%s", timestamp, messageID[:8], ext)
+	filePath := filepath.Join(mediaDir, filename)
+
+	// 保存文件
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return "", fmt.Errorf("save file: %w", err)
+	}
+
+	return filePath, nil
 }
 
 // Compile-time check for unused code (regexp for markdown table parsing if needed later)

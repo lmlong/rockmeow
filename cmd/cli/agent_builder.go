@@ -18,17 +18,18 @@ import (
 
 // AgentBuilder Agent 构建器，统一 Agent 创建逻辑
 type AgentBuilder struct {
-	cfg            *config.Config
-	registry       *providers.Registry
-	provider       providers.Provider
-	skillsLoader   *skills.Loader
-	workspaceMgr   *tools.WorkspaceManager
-	mcpManager     *tools.MCPManager
-	cronService    tools.CronService
-	enableMCP      bool
-	enableCron     bool
-	enableMessage  bool
-	channelManager *tools.MessageTool
+	cfg                *config.Config
+	registry           *providers.Registry
+	provider           providers.Provider
+	multimodalProvider providers.Provider // 多模态 Provider
+	skillsLoader       *skills.Loader
+	workspaceMgr       *tools.WorkspaceManager
+	mcpManager         *tools.MCPManager
+	cronService        tools.CronService
+	enableMCP          bool
+	enableCron         bool
+	enableMessage      bool
+	channelManager     *tools.MessageTool
 }
 
 // NewAgentBuilder 创建 Agent 构建器
@@ -51,6 +52,18 @@ func (b *AgentBuilder) InitProvider() error {
 
 	b.registry.SetDefault(providerName)
 	b.provider = provider
+
+	// 初始化多模态 Provider（如果配置了）
+	if b.cfg.Agents.MultimodalProvider != "" {
+		mmProvider, _ := b.registry.MatchProvider(b.cfg.Agents.MultimodalProvider)
+		if mmProvider == nil {
+			logger.Warn("Multimodal provider not found, using default provider", "name", b.cfg.Agents.MultimodalProvider)
+		} else {
+			b.multimodalProvider = mmProvider
+			logger.Info("Multimodal provider initialized", "name", b.cfg.Agents.MultimodalProvider)
+		}
+	}
+
 	return nil
 }
 
@@ -130,7 +143,8 @@ func (b *AgentBuilder) Build() (*agent.Agent, error) {
 		b.InitWorkspace()
 	}
 
-	ag := agent.NewAgent(&b.cfg.Agents, b.provider, b.skillsLoader)
+	// 使用带多模态支持的 Agent 创建方法
+	ag := agent.NewAgentWithMultimodal(&b.cfg.Agents, b.provider, b.multimodalProvider, b.skillsLoader)
 
 	// 注册基础工具
 	ag.RegisterTool(tools.NewShellTool(b.workspaceMgr, b.cfg.Tools.RestrictToWorkspace))

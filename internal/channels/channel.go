@@ -12,6 +12,7 @@ type Message struct {
 	ID        string         // 消息唯一ID
 	SessionID string         // 会话ID (格式: "feishu-{open_id}")
 	Content   string         // 消息文本内容
+	Media     []string       // 媒体文件路径列表（图片等）
 	Metadata  map[string]any // 平台特定元数据
 	Channel   string         // 渠道名称（如 "feishu"）
 	UserID    string         // 用户ID（用于投递响应）

@@ -64,6 +64,18 @@ func (s *Session) AddMessage(role, content string) {
 	s.UpdatedAt = time.Now()
 }
 
+// AddMessageWithMedia 添加带媒体的消息
+func (s *Session) AddMessageWithMedia(role, content string, media []string) {
+	s.Messages = append(s.Messages, &memory.Message{
+		ID:        generateID(),
+		Role:      role,
+		Content:   content,
+		Media:     media,
+		Timestamp: time.Now(),
+	})
+	s.UpdatedAt = time.Now()
+}
+
 // GetHistory 获取历史消息（限制窗口大小）
 func (s *Session) GetHistory(window int) []*memory.Message {
 	if window <= 0 || len(s.Messages) <= window {

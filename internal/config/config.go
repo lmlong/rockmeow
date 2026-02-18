@@ -32,12 +32,13 @@ type ProviderConfig struct {
 
 // AgentsConfig 代理配置
 type AgentsConfig struct {
-	Workspace         string        `json:"workspace"`
-	Provider          string        `json:"provider"`          // 使用的 Provider 名称
-	MaxToolIterations int           `json:"maxToolIterations"` // 最大工具迭代次数
-	MemoryWindow      int           `json:"memoryWindow"`      // 历史消息窗口大小
-	SystemPrompt      string        `json:"systemPrompt"`
-	MemoryConfig      *MemoryConfig `json:"memory,omitempty"` // 记忆系统配置
+	Workspace          string        `json:"workspace"`
+	Provider           string        `json:"provider"`                     // 使用的 Provider 名称（文本）
+	MultimodalProvider string        `json:"multimodalProvider,omitempty"` // 多模态 Provider 名称（图片/视频），如未设置则使用 Provider
+	MaxToolIterations  int           `json:"maxToolIterations"`            // 最大工具迭代次数
+	MemoryWindow       int           `json:"memoryWindow"`                 // 历史消息窗口大小
+	SystemPrompt       string        `json:"systemPrompt"`
+	MemoryConfig       *MemoryConfig `json:"memory,omitempty"` // 记忆系统配置
 	// 注：Temperature 和 MaxTokens 从 Provider 配置中获取，避免重复
 	// 注：Skills 目录固定在 ~/.lingguard/skills/
 }

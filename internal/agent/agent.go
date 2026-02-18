@@ -28,19 +28,25 @@ const ReflectPrompt = "Reflect on the results and decide next steps."
 
 // Agent 核心代理结构
 type Agent struct {
-	id            string
-	provider      providers.Provider
-	toolRegistry  *tools.Registry
-	sessions      *session.Manager
-	skillsMgr     *skills.Manager
-	subagentMgr   *subagent.SubagentManager
-	config        *config.AgentsConfig
-	memoryStore   *memory.FileStore      // 文件持久化存储（参考 nanobot）
-	memoryBuilder *memory.ContextBuilder // 记忆上下文构建器
+	id                 string
+	provider           providers.Provider // 主 Provider（文本）
+	multimodalProvider providers.Provider // 多模态 Provider（图片/视频），可选
+	toolRegistry       *tools.Registry
+	sessions           *session.Manager
+	skillsMgr          *skills.Manager
+	subagentMgr        *subagent.SubagentManager
+	config             *config.AgentsConfig
+	memoryStore        *memory.FileStore      // 文件持久化存储（参考 nanobot）
+	memoryBuilder      *memory.ContextBuilder // 记忆上下文构建器
 }
 
 // NewAgent 创建新代理
 func NewAgent(cfg *config.AgentsConfig, provider providers.Provider, skillsLoader *skills.Loader) *Agent {
+	return NewAgentWithMultimodal(cfg, provider, nil, skillsLoader)
+}
+
+// NewAgentWithMultimodal 创建带多模态支持的代理
+func NewAgentWithMultimodal(cfg *config.AgentsConfig, provider providers.Provider, multimodalProvider providers.Provider, skillsLoader *skills.Loader) *Agent {
 	var skillsMgr *skills.Manager
 	if skillsLoader != nil {
 		skillsMgr = skills.NewManager(skillsLoader)
@@ -73,15 +79,21 @@ func NewAgent(cfg *config.AgentsConfig, provider providers.Provider, skillsLoade
 		sessionStore = memory.NewMemoryStore()
 	}
 
+	// 如果没有配置多模态 provider，使用主 provider
+	if multimodalProvider == nil {
+		multimodalProvider = provider
+	}
+
 	agent := &Agent{
-		id:            generateID(),
-		provider:      provider,
-		toolRegistry:  toolRegistry,
-		sessions:      session.NewManager(sessionStore, cfg.MemoryWindow),
-		skillsMgr:     skillsMgr,
-		config:        cfg,
-		memoryStore:   memStore,
-		memoryBuilder: memBuilder,
+		id:                 generateID(),
+		provider:           provider,
+		multimodalProvider: multimodalProvider,
+		toolRegistry:       toolRegistry,
+		sessions:           session.NewManager(sessionStore, cfg.MemoryWindow),
+		skillsMgr:          skillsMgr,
+		config:             cfg,
+		memoryStore:        memStore,
+		memoryBuilder:      memBuilder,
 	}
 
 	// 初始化子代理管理器
@@ -171,39 +183,83 @@ func (a *Agent) ListSkills() ([]*skills.Skill, error) {
 
 // ProcessMessage 处理消息
 func (a *Agent) ProcessMessage(ctx context.Context, sessionID, userMessage string) (string, error) {
+	return a.ProcessMessageWithMedia(ctx, sessionID, userMessage, nil)
+}
+
+// ProcessMessageWithMedia 处理带媒体的消息
+func (a *Agent) ProcessMessageWithMedia(ctx context.Context, sessionID, userMessage string, mediaPaths []string) (string, error) {
 	// 1. 获取或创建会话并添加用户消息
 	s := a.sessions.GetOrCreate(sessionID)
-	s.AddMessage("user", userMessage)
+
+	// 检查是否有多模态内容
+	hasMedia := len(mediaPaths) > 0
+	if hasMedia && a.multimodalProvider.SupportsVision() {
+		// 使用多模态消息格式
+		s.AddMessageWithMedia("user", userMessage, mediaPaths)
+	} else {
+		s.AddMessage("user", userMessage)
+		hasMedia = false // 如果 provider 不支持视觉，退化为文本模式
+	}
 
 	// 2. 构建上下文
-	messages, err := a.buildContext(sessionID)
+	messages, err := a.buildContextWithMedia(sessionID, hasMedia)
 	if err != nil {
 		return "", fmt.Errorf("failed to build context: %w", err)
 	}
 
-	// 3. 执行代理循环
-	return a.runLoop(ctx, sessionID, messages)
+	// 3. 选择 provider：多模态消息使用 multimodalProvider
+	provider := a.provider
+	if hasMedia {
+		provider = a.multimodalProvider
+	}
+
+	// 4. 执行代理循环
+	return a.runLoopWithProvider(ctx, sessionID, messages, provider)
 }
 
 // ProcessMessageStream 流式处理消息
 func (a *Agent) ProcessMessageStream(ctx context.Context, sessionID, userMessage string, callback stream.StreamCallback) error {
+	return a.ProcessMessageStreamWithMedia(ctx, sessionID, userMessage, nil, callback)
+}
+
+// ProcessMessageStreamWithMedia 流式处理带媒体的消息
+func (a *Agent) ProcessMessageStreamWithMedia(ctx context.Context, sessionID, userMessage string, mediaPaths []string, callback stream.StreamCallback) error {
 	// 1. 获取或创建会话并添加用户消息
 	s := a.sessions.GetOrCreate(sessionID)
-	s.AddMessage("user", userMessage)
+
+	// 检查是否有多模态内容
+	hasMedia := len(mediaPaths) > 0
+	if hasMedia && a.multimodalProvider.SupportsVision() {
+		s.AddMessageWithMedia("user", userMessage, mediaPaths)
+	} else {
+		s.AddMessage("user", userMessage)
+		hasMedia = false // 如果 provider 不支持视觉，退化为文本模式
+	}
 
 	// 2. 构建上下文
-	messages, err := a.buildContext(sessionID)
+	messages, err := a.buildContextWithMedia(sessionID, hasMedia)
 	if err != nil {
 		callback(stream.NewErrorEvent(fmt.Errorf("failed to build context: %w", err)))
 		return err
 	}
 
-	// 3. 执行流式代理循环
-	return a.runLoopStream(ctx, sessionID, messages, callback)
+	// 3. 选择 provider：多模态消息使用 multimodalProvider
+	provider := a.provider
+	if hasMedia {
+		provider = a.multimodalProvider
+	}
+
+	// 4. 执行流式代理循环
+	return a.runLoopStreamWithProvider(ctx, sessionID, messages, provider, callback)
 }
 
 // buildContext 构建上下文
 func (a *Agent) buildContext(sessionID string) ([]llm.Message, error) {
+	return a.buildContextWithMedia(sessionID, false)
+}
+
+// buildContextWithMedia 构建上下文（支持多模态）
+func (a *Agent) buildContextWithMedia(sessionID string, hasMedia bool) ([]llm.Message, error) {
 	messages := make([]llm.Message, 0)
 
 	// 构建系统提示
@@ -267,17 +323,144 @@ func (a *Agent) buildContext(sessionID string) ([]llm.Message, error) {
 	// 获取会话历史消息（使用 MemoryWindow）
 	s := a.sessions.GetOrCreate(sessionID)
 	for _, msg := range s.GetHistory(a.config.MemoryWindow) {
-		messages = append(messages, llm.Message{
+		llmMsg := llm.Message{
 			Role:    msg.Role,
 			Content: msg.Content,
-		})
+		}
+
+		// 如果消息有媒体且 provider 支持视觉，构建多模态内容
+		if len(msg.Media) > 0 && a.provider.SupportsVision() {
+			contentParts, err := a.buildMultimodalContent(msg.Content, msg.Media)
+			if err != nil {
+				logger.Warn("Failed to build multimodal content", "error", err)
+			} else {
+				llmMsg.ContentParts = contentParts
+				llmMsg.Content = "" // 清空 Content，使用 ContentParts
+			}
+		}
+
+		messages = append(messages, llmMsg)
 	}
 
 	return messages, nil
 }
 
+// buildMultimodalContent 构建多模态内容
+func (a *Agent) buildMultimodalContent(text string, mediaPaths []string) ([]llm.ContentPart, error) {
+	parts := make([]llm.ContentPart, 0)
+
+	// 添加图片
+	for _, path := range mediaPaths {
+		// 读取图片并转换为 base64
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read image %s: %w", path, err)
+		}
+
+		// 检测 MIME 类型
+		mimeType := detectMimeType(data)
+		base64Data := encodeBase64(data)
+
+		parts = append(parts, llm.ContentPart{
+			Type: "image_url",
+			ImageURL: &llm.ImageURL{
+				URL:    fmt.Sprintf("data:%s;base64,%s", mimeType, base64Data),
+				Detail: "auto",
+			},
+		})
+	}
+
+	// 添加文本（放在最后）
+	if text != "" {
+		parts = append(parts, llm.ContentPart{
+			Type: "text",
+			Text: text,
+		})
+	}
+
+	return parts, nil
+}
+
+// detectMimeType 检测图片 MIME 类型
+func detectMimeType(data []byte) string {
+	if len(data) < 8 {
+		return "image/jpeg"
+	}
+
+	// JPEG: FF D8 FF
+	if data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		return "image/jpeg"
+	}
+	// PNG: 89 50 4E 47 0D 0A 1A 0A
+	if data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 {
+		return "image/png"
+	}
+	// GIF: 47 49 46 38
+	if data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x38 {
+		return "image/gif"
+	}
+	// WebP: 52 49 46 46 ... 57 45 42 50
+	if data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 {
+		if len(data) > 11 && data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50 {
+			return "image/webp"
+		}
+	}
+
+	return "image/jpeg"
+}
+
+// encodeBase64 编码为 base64
+func encodeBase64(data []byte) string {
+	return encodeBase64String(data)
+}
+
+// encodeBase64String 编码为 base64 字符串
+func encodeBase64String(data []byte) string {
+	const base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+	result := make([]byte, 0, (len(data)+2)/3*4)
+
+	for i := 0; i < len(data); i += 3 {
+		var n uint32
+		remaining := len(data) - i
+
+		if remaining >= 3 {
+			n = uint32(data[i])<<16 | uint32(data[i+1])<<8 | uint32(data[i+2])
+			result = append(result,
+				base64Chars[n>>18&0x3F],
+				base64Chars[n>>12&0x3F],
+				base64Chars[n>>6&0x3F],
+				base64Chars[n&0x3F],
+			)
+		} else if remaining == 2 {
+			n = uint32(data[i])<<16 | uint32(data[i+1])<<8
+			result = append(result,
+				base64Chars[n>>18&0x3F],
+				base64Chars[n>>12&0x3F],
+				base64Chars[n>>6&0x3F],
+				'=',
+			)
+		} else {
+			n = uint32(data[i]) << 16
+			result = append(result,
+				base64Chars[n>>18&0x3F],
+				base64Chars[n>>12&0x3F],
+				'=',
+				'=',
+			)
+		}
+	}
+
+	return string(result)
+}
+
 // runLoop 代理执行循环
 func (a *Agent) runLoop(ctx context.Context, sessionID string, messages []llm.Message) (string, error) {
+	return a.runLoopWithProvider(ctx, sessionID, messages, a.provider)
+}
+
+// runLoopWithProvider 代理执行循环（指定 provider）
+func (a *Agent) runLoopWithProvider(ctx context.Context, sessionID string, messages []llm.Message, provider providers.Provider) (string, error) {
 	iterations := 0
 	maxIterations := a.config.MaxToolIterations
 	if maxIterations <= 0 {
@@ -289,13 +472,13 @@ func (a *Agent) runLoop(ctx context.Context, sessionID string, messages []llm.Me
 
 		// 构建 LLM 请求
 		req := &llm.Request{
-			Model:    a.provider.Model(),
+			Model:    provider.Model(),
 			Messages: messages,
 			Tools:    a.toolRegistry.GetToolDefinitions(),
 		}
 
 		// 调用 LLM
-		resp, err := a.provider.Complete(ctx, req)
+		resp, err := provider.Complete(ctx, req)
 		if err != nil {
 			return "", fmt.Errorf("LLM call failed: %w", err)
 		}
@@ -349,6 +532,11 @@ func (a *Agent) runLoop(ctx context.Context, sessionID string, messages []llm.Me
 
 // runLoopStream 流式代理执行循环
 func (a *Agent) runLoopStream(ctx context.Context, sessionID string, messages []llm.Message, callback stream.StreamCallback) error {
+	return a.runLoopStreamWithProvider(ctx, sessionID, messages, a.provider, callback)
+}
+
+// runLoopStreamWithProvider 流式代理执行循环（指定 provider）
+func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string, messages []llm.Message, provider providers.Provider, callback stream.StreamCallback) error {
 	iterations := 0
 	maxIterations := a.config.MaxToolIterations
 	if maxIterations <= 0 {
@@ -360,14 +548,14 @@ func (a *Agent) runLoopStream(ctx context.Context, sessionID string, messages []
 
 		// 构建 LLM 请求
 		req := &llm.Request{
-			Model:    a.provider.Model(),
+			Model:    provider.Model(),
 			Messages: messages,
 			Tools:    a.toolRegistry.GetToolDefinitions(),
 			Stream:   true,
 		}
 
 		// 调用 LLM 流式接口
-		eventChan, err := a.provider.Stream(ctx, req)
+		eventChan, err := provider.Stream(ctx, req)
 		if err != nil {
 			return fmt.Errorf("LLM stream call failed: %w", err)
 		}

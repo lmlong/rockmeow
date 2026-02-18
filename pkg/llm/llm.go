@@ -12,6 +12,60 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+
+	// 多模态内容（当 ContentParts 非空时使用，Content 会被忽略）
+	ContentParts []ContentPart `json:"-"`
+}
+
+// ContentPart 多模态内容部分
+type ContentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+// ImageURL 图片 URL
+type ImageURL struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"` // "low", "high", "auto"
+}
+
+// MarshalJSON 自定义 JSON 序列化，支持多模态内容
+func (m Message) MarshalJSON() ([]byte, error) {
+	// 使用匿名结构体来控制序列化
+	type Alias Message
+
+	if len(m.ContentParts) > 0 {
+		// 多模态消息：content 是数组
+		return json.Marshal(struct {
+			Role       string        `json:"role"`
+			Content    []ContentPart `json:"content"`
+			ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
+			ToolCallID string        `json:"tool_call_id,omitempty"`
+			Name       string        `json:"name,omitempty"`
+		}{
+			Role:       m.Role,
+			Content:    m.ContentParts,
+			ToolCalls:  m.ToolCalls,
+			ToolCallID: m.ToolCallID,
+			Name:       m.Name,
+		})
+	}
+
+	// 普通消息：使用默认序列化
+	return json.Marshal(struct {
+		Role       string     `json:"role"`
+		Content    string     `json:"content,omitempty"`
+		ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+		ToolCallID string     `json:"tool_call_id,omitempty"`
+		Name       string     `json:"name,omitempty"`
+	}{
+		Role:       m.Role,
+		Content:    m.Content,
+		ToolCalls:  m.ToolCalls,
+		ToolCallID: m.ToolCallID,
+		Name:       m.Name,
+	})
 }
 
 // ToolCall 工具调用

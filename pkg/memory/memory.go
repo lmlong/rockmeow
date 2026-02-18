@@ -12,6 +12,7 @@ type Message struct {
 	ID        string                 `json:"id"`
 	Role      string                 `json:"role"` // user, assistant, system, tool
 	Content   string                 `json:"content"`
+	Media     []string               `json:"media,omitempty"` // 媒体文件路径列表
 	Timestamp time.Time              `json:"timestamp"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }

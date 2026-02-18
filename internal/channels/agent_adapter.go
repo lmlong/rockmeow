@@ -19,10 +19,10 @@ func NewAgentAdapter(ag *agent.Agent) *AgentAdapter {
 
 // HandleMessage 实现 MessageHandler 接口
 func (a *AgentAdapter) HandleMessage(ctx context.Context, msg *Message) (string, error) {
-	return a.agent.ProcessMessage(ctx, msg.SessionID, msg.Content)
+	return a.agent.ProcessMessageWithMedia(ctx, msg.SessionID, msg.Content, msg.Media)
 }
 
 // HandleMessageStream 实现 StreamingMessageHandler 接口
 func (a *AgentAdapter) HandleMessageStream(ctx context.Context, msg *Message, callback stream.StreamCallback) error {
-	return a.agent.ProcessMessageStream(ctx, msg.SessionID, msg.Content, callback)
+	return a.agent.ProcessMessageStreamWithMedia(ctx, msg.SessionID, msg.Content, msg.Media, callback)
 }
