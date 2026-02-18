@@ -19,10 +19,7 @@
     },
     "qwen": {
       "apiKey": "sk-791d6c7cc3094af99290577b709b47e6",
-      "apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "model": "qwen-omni-turbo",
-      "timeout": 300,
-      "supportsTools": false
+      "model": "qwen3.5-plus"
     },
     "openai": {
       "apiKey": "sk-xxx"
