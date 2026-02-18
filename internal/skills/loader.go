@@ -152,7 +152,8 @@ func (l *Loader) loadFromDir(dir string) ([]*Skill, error) {
 		skillPath := filepath.Join(dir, entry.Name(), "SKILL.md")
 		content, err := os.ReadFile(skillPath)
 		if err != nil {
-			logger.Debug("skipping skill directory, no SKILL.md", "dir", entry.Name())
+			// 记录跳过的目录，帮助调试配置问题
+			logger.Debug("skipping directory, no SKILL.md", "path", skillPath)
 			continue
 		}
 
@@ -272,25 +273,23 @@ func (l *Loader) BuildSkillsSummary() string {
 
 	var sb strings.Builder
 	sb.WriteString("<skills>\n")
-	sb.WriteString("<!-- 以下是可用技能的摘要。如需使用某个技能，请使用 skill 工具加载完整指令 -->\n\n")
+	sb.WriteString("## 可用技能列表\n\n")
+	sb.WriteString("**重要：** 处理相关任务时，必须先使用 `skill --name <技能名>` 加载完整指令！\n\n")
 
 	for _, skill := range skills {
-		sb.WriteString(fmt.Sprintf("  <skill name=\"%s\"", skill.Name))
-		if skill.Emoji != "" {
-			sb.WriteString(fmt.Sprintf(" emoji=\"%s\"", skill.Emoji))
-		}
-		if skill.Always {
-			sb.WriteString(" always=\"true\"")
-		}
-		sb.WriteString(">\n")
-		sb.WriteString(fmt.Sprintf("    <description>%s</description>\n", skill.Description))
 		if !skill.Available {
-			sb.WriteString(fmt.Sprintf("    <unavailable>%s</unavailable>\n", skill.Unavailable))
+			continue // 跳过不可用的技能
 		}
-		sb.WriteString("  </skill>\n")
+		emoji := ""
+		if skill.Emoji != "" {
+			emoji = skill.Emoji + " "
+		}
+		sb.WriteString(fmt.Sprintf("### %s%s\n", emoji, skill.Name))
+		sb.WriteString(fmt.Sprintf("%s\n", skill.Description))
+		sb.WriteString(fmt.Sprintf("使用方式: `skill --name %s`\n\n", skill.Name))
 	}
 
-	sb.WriteString("\n</skills>")
+	sb.WriteString("</skills>")
 
 	return sb.String()
 }

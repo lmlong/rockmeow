@@ -84,7 +84,7 @@ func (b *AgentBuilder) InitSkills(verbose bool) {
 	}
 
 	// 用户技能目录
-	userSkillsDir := filepath.Join(home, ".lingguard", "skills")
+	userSkillsDir := filepath.Join(home, ".lingguard", "skills", "builtin")
 	if _, err := os.Stat(userSkillsDir); err == nil {
 		skillDirs = append(skillDirs, userSkillsDir)
 		if verbose {

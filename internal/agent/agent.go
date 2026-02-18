@@ -295,10 +295,27 @@ func (a *Agent) buildContextWithMedia(sessionID string, hasMedia bool) ([]llm.Me
 	messages := make([]llm.Message, 0)
 	historyLen := 0
 
-	// 构建系统提示
-	systemPrompt := a.config.SystemPrompt
+	// 构建系统提示 - 技能信息放在最前面，确保 LLM 注意到
+	var systemPrompt string
 
-	// 添加当前时间信息（让 LLM 能准确计算相对时间）
+	// 首先添加技能上下文（最重要）
+	if a.skillsMgr != nil {
+		skillsContext := a.skillsMgr.GetSkillsContext()
+		if skillsContext != "" {
+			systemPrompt = skillsContext
+		}
+	}
+
+	// 然后添加用户配置的系统提示
+	if a.config.SystemPrompt != "" {
+		if systemPrompt != "" {
+			systemPrompt = systemPrompt + "\n\n" + a.config.SystemPrompt
+		} else {
+			systemPrompt = a.config.SystemPrompt
+		}
+	}
+
+	// 添加当前时间信息
 	currentTime := time.Now().Format("2006-01-02 15:04:05 Monday")
 	timeInfo := fmt.Sprintf("当前时间: %s", currentTime)
 	if systemPrompt != "" {
@@ -329,18 +346,6 @@ func (a *Agent) buildContextWithMedia(sessionID string, hasMedia bool) ([]llm.Me
 				systemPrompt = systemPrompt + "\n\n" + memContext
 			} else {
 				systemPrompt = memContext
-			}
-		}
-	}
-
-	// 添加技能上下文
-	if a.skillsMgr != nil {
-		skillsContext := a.skillsMgr.GetSkillsContext()
-		if skillsContext != "" {
-			if systemPrompt != "" {
-				systemPrompt = systemPrompt + "\n\n" + skillsContext
-			} else {
-				systemPrompt = skillsContext
 			}
 		}
 	}
