@@ -40,6 +40,12 @@ func NewOpenAIProvider(name string, cfg *ProviderConfig) *OpenAIProvider {
 		timeout = 60 * time.Second
 	}
 
+	// 检测是否支持工具：如果配置指定了则使用配置值，否则默认为 true
+	supportsTools := true
+	if cfg.SupportsTools != nil {
+		supportsTools = *cfg.SupportsTools
+	}
+
 	return &OpenAIProvider{
 		name:    name,
 		model:   cfg.Model,
@@ -50,7 +56,7 @@ func NewOpenAIProvider(name string, cfg *ProviderConfig) *OpenAIProvider {
 			tools  bool
 			vision bool
 		}{
-			tools:  true,
+			tools:  supportsTools,
 			vision: true,
 		},
 	}

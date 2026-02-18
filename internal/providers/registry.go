@@ -128,12 +128,13 @@ func (r *Registry) InitFromConfig(cfg *config.Config) error {
 
 		// 构建 ProviderConfig
 		providerCfg := &ProviderConfig{
-			APIKey:      pc.APIKey,
-			APIBase:     pc.APIBase,
-			Model:       pc.Model,
-			Temperature: pc.Temperature,
-			MaxTokens:   pc.MaxTokens,
-			Timeout:     pc.Timeout,
+			APIKey:        pc.APIKey,
+			APIBase:       pc.APIBase,
+			Model:         pc.Model,
+			Temperature:   pc.Temperature,
+			MaxTokens:     pc.MaxTokens,
+			Timeout:       pc.Timeout,
+			SupportsTools: pc.SupportsTools,
 		}
 
 		// 使用规范中的默认值（仅当 config 中为空时）

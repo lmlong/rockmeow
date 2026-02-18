@@ -269,8 +269,10 @@ func (a *Agent) buildContext(sessionID string) ([]llm.Message, error) {
 }
 
 // buildContextWithMedia 构建上下文（支持多模态）
+// hasMedia 表示当前消息是否包含媒体，用于决定是否为最后一条用户消息构建多模态内容
 func (a *Agent) buildContextWithMedia(sessionID string, hasMedia bool) ([]llm.Message, error) {
 	messages := make([]llm.Message, 0)
+	historyLen := 0
 
 	// 构建系统提示
 	systemPrompt := a.config.SystemPrompt
@@ -332,14 +334,17 @@ func (a *Agent) buildContextWithMedia(sessionID string, hasMedia bool) ([]llm.Me
 
 	// 获取会话历史消息（使用 MemoryWindow）
 	s := a.sessions.GetOrCreate(sessionID)
-	for _, msg := range s.GetHistory(a.config.MemoryWindow) {
+	history := s.GetHistory(a.config.MemoryWindow)
+	historyLen = len(history)
+
+	for i, msg := range history {
 		llmMsg := llm.Message{
 			Role:    msg.Role,
 			Content: msg.Content,
 		}
 
-		// 如果消息有媒体且 provider 支持视觉，构建多模态内容
-		if len(msg.Media) > 0 && a.provider.SupportsVision() {
+		// 如果这是最后一条用户消息且有多模态内容，构建多模态消息
+		if hasMedia && i == historyLen-1 && msg.Role == "user" && len(msg.Media) > 0 {
 			contentParts, err := a.buildMultimodalContent(msg.Content, msg.Media)
 			if err != nil {
 				logger.Warn("Failed to build multimodal content", "error", err)
@@ -536,7 +541,11 @@ func (a *Agent) runLoopWithProvider(ctx context.Context, sessionID string, messa
 		req := &llm.Request{
 			Model:    provider.Model(),
 			Messages: messages,
-			Tools:    a.toolRegistry.GetToolDefinitions(),
+		}
+
+		// 只有支持工具的 provider 才发送工具定义
+		if provider.SupportsTools() {
+			req.Tools = a.toolRegistry.GetToolDefinitions()
 		}
 
 		// 调用 LLM
@@ -605,6 +614,11 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 		maxIterations = 10
 	}
 
+	// 如果 provider 不支持工具，最多只执行 1 次迭代（不执行工具调用循环）
+	if !provider.SupportsTools() {
+		maxIterations = 1
+	}
+
 	for iterations < maxIterations {
 		iterations++
 
@@ -612,8 +626,12 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 		req := &llm.Request{
 			Model:    provider.Model(),
 			Messages: messages,
-			Tools:    a.toolRegistry.GetToolDefinitions(),
 			Stream:   true,
+		}
+
+		// 只有支持工具的 provider 才发送工具定义
+		if provider.SupportsTools() {
+			req.Tools = a.toolRegistry.GetToolDefinitions()
 		}
 
 		// 调用 LLM 流式接口

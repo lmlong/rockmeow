@@ -21,13 +21,14 @@ type Config struct {
 
 // ProviderConfig 提供商配置
 type ProviderConfig struct {
-	APIKey      string  `json:"apiKey"`
-	APIBase     string  `json:"apiBase,omitempty"`
-	Model       string  `json:"model,omitempty"`
-	Temperature float64 `json:"temperature,omitempty"`
-	MaxTokens   int     `json:"maxTokens,omitempty"`
-	GroupID     string  `json:"groupId,omitempty"`
-	Timeout     int     `json:"timeout,omitempty"` // 请求超时时间（秒），默认 60
+	APIKey        string  `json:"apiKey"`
+	APIBase       string  `json:"apiBase,omitempty"`
+	Model         string  `json:"model,omitempty"`
+	Temperature   float64 `json:"temperature,omitempty"`
+	MaxTokens     int     `json:"maxTokens,omitempty"`
+	GroupID       string  `json:"groupId,omitempty"`
+	Timeout       int     `json:"timeout,omitempty"`       // 请求超时时间（秒），默认 60
+	SupportsTools *bool   `json:"supportsTools,omitempty"` // 是否支持工具调用，nil 表示自动检测
 }
 
 // AgentsConfig 代理配置

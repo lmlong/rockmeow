@@ -30,10 +30,11 @@ type Provider interface {
 
 // ProviderConfig 提供商配置
 type ProviderConfig struct {
-	APIKey      string
-	APIBase     string
-	Model       string
-	Temperature float64
-	MaxTokens   int
-	Timeout     int // 请求超时时间（秒）
+	APIKey        string
+	APIBase       string
+	Model         string
+	Temperature   float64
+	MaxTokens     int
+	Timeout       int   // 请求超时时间（秒）
+	SupportsTools *bool // 是否支持工具调用，nil 表示自动检测
 }
