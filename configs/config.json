@@ -87,10 +87,12 @@
       "baseURL": "http://127.0.0.1:4096",
       "timeout": 1200
     },
-    "imageGen": {
+    "aigc": {
       "enabled": true,
       "provider": "qwen",
-      "model": "wanx2.1-t2i-turbo"
+      "textToImage": "wan2.6-t2i",
+      "textToVideo": "wan2.6-t2v",
+      "imageToVideo": "wan2.6-i2v-flash"
     }
   },
   "storage": {

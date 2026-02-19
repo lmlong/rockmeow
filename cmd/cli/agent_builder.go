@@ -168,31 +168,38 @@ func (b *AgentBuilder) Build() (*agent.Agent, error) {
 	// 注册记忆工具
 	ag.RegisterMemoryTool()
 
-	// 注册图像/视频生成工具
-	if b.cfg.Tools.ImageGen != nil && b.cfg.Tools.ImageGen.Enabled {
-		imageGenCfg := tools.DefaultImageGenConfig()
-		imageGenCfg.APIKey = b.cfg.Tools.ImageGen.APIKey
+	// 注册 AI 内容生成工具（图像/视频）
+	if b.cfg.Tools.AIGC != nil && b.cfg.Tools.AIGC.Enabled {
+		aigcCfg := tools.DefaultImageGenConfig()
+		aigcCfg.APIKey = b.cfg.Tools.AIGC.APIKey
 
 		// 从 Provider 配置继承 API Key
-		if imageGenCfg.APIKey == "" {
-			providerName := b.cfg.Tools.ImageGen.Provider
+		if aigcCfg.APIKey == "" {
+			providerName := b.cfg.Tools.AIGC.Provider
 			if providerName == "" {
 				providerName = "qwen"
 			}
 			if p, ok := b.cfg.Providers[providerName]; ok {
-				imageGenCfg.APIKey = p.APIKey
+				aigcCfg.APIKey = p.APIKey
 			}
 		}
 
-		if b.cfg.Tools.ImageGen.Model != "" {
-			imageGenCfg.Model = b.cfg.Tools.ImageGen.Model
+		// 从配置读取模型
+		if b.cfg.Tools.AIGC.TextToImage != "" {
+			aigcCfg.TextToImage = b.cfg.Tools.AIGC.TextToImage
 		}
-		if b.cfg.Tools.ImageGen.OutputDir != "" {
-			imageGenCfg.OutputDir = b.cfg.Tools.ImageGen.OutputDir
+		if b.cfg.Tools.AIGC.TextToVideo != "" {
+			aigcCfg.TextToVideo = b.cfg.Tools.AIGC.TextToVideo
+		}
+		if b.cfg.Tools.AIGC.ImageToVideo != "" {
+			aigcCfg.ImageToVideo = b.cfg.Tools.AIGC.ImageToVideo
+		}
+		if b.cfg.Tools.AIGC.OutputDir != "" {
+			aigcCfg.OutputDir = b.cfg.Tools.AIGC.OutputDir
 		}
 
-		ag.RegisterTool(tools.NewImageGenTool(imageGenCfg))
-		logger.Info("Image/Video generation tool enabled", "model", imageGenCfg.Model)
+		ag.RegisterTool(tools.NewImageGenTool(aigcCfg))
+		logger.Info("AIGC tool enabled", "textToImage", aigcCfg.TextToImage, "textToVideo", aigcCfg.TextToVideo, "imageToVideo", aigcCfg.ImageToVideo)
 	}
 
 	// 注册 OpenCode 工具（即使 disabled 也注册，会返回原生工具提示）

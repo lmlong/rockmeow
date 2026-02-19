@@ -217,7 +217,7 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 			content = "[image: download failed]"
 		} else {
 			mediaPaths = append(mediaPaths, imagePath)
-			content = "[image]"
+			content = fmt.Sprintf("[image saved to: %s]", imagePath)
 			logger.Info("Downloaded image for multimodal processing", "path", imagePath, "messageId", messageID)
 		}
 	} else if msgType == "video" {

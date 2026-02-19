@@ -130,17 +130,19 @@ type ToolsConfig struct {
 	MCPServers map[string]MCPServerConfig `json:"mcpServers,omitempty"` // MCP 服务器配置
 	// OpenCode integration
 	OpenCode *OpenCodeConfig `json:"opencode,omitempty"` // OpenCode HTTP API 配置
-	// Image/Video generation
-	ImageGen *ImageGenConfig `json:"imageGen,omitempty"` // 图像/视频生成配置
+	// AIGC (AI Generated Content) - 图像/视频生成
+	AIGC *AIGCConfig `json:"aigc,omitempty"` // AI 内容生成配置
 }
 
-// ImageGenConfig 图像/视频生成配置
-type ImageGenConfig struct {
-	Enabled   bool   `json:"enabled"`             // 是否启用图像生成
-	Provider  string `json:"provider,omitempty"`  // 提供商: "qwen" (通义万相)
-	APIKey    string `json:"apiKey,omitempty"`    // API Key (可从 Provider 配置继承)
-	Model     string `json:"model,omitempty"`     // 模型名称，默认 wanx2.1-t2i-turbo
-	OutputDir string `json:"outputDir,omitempty"` // 输出目录，默认 ~/.lingguard/generated
+// AIGCConfig AI 内容生成配置（图像/视频）
+type AIGCConfig struct {
+	Enabled      bool   `json:"enabled"`                // 是否启用
+	Provider     string `json:"provider,omitempty"`     // 提供商: "qwen" (通义万相)
+	APIKey       string `json:"apiKey,omitempty"`       // API Key (可从 Provider 配置继承)
+	TextToImage  string `json:"textToImage,omitempty"`  // 文生图模型，默认 wan2.6-t2i
+	TextToVideo  string `json:"textToVideo,omitempty"`  // 文生视频模型，默认 wan2.6-t2v
+	ImageToVideo string `json:"imageToVideo,omitempty"` // 图生视频模型，默认 wan2.6-i2v-flash
+	OutputDir    string `json:"outputDir,omitempty"`    // 输出目录，默认 ~/.lingguard/workspace/generated
 }
 
 // OpenCodeConfig OpenCode HTTP API 配置
