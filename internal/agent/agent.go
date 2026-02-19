@@ -583,9 +583,9 @@ func (a *Agent) runLoopWithProvider(ctx context.Context, sessionID string, messa
 		// 获取响应消息
 		assistantMsg := resp.ToMessage()
 
-		// 存储助手消息到会话
+		// 存储助手消息到会话（只有内容不为空时才保存）
 		s := a.sessions.GetOrCreate(sessionID)
-		if assistantMsg.Content != "" || len(assistantMsg.ToolCalls) > 0 {
+		if assistantMsg.Content != "" {
 			s.AddMessage("assistant", assistantMsg.Content)
 		}
 
@@ -729,9 +729,9 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 			ToolCalls: toolCalls,
 		}
 
-		// 存储助手消息到会话
+		// 存储助手消息到会话（只有内容不为空时才保存）
 		s := a.sessions.GetOrCreate(sessionID)
-		if assistantContent != "" || len(toolCalls) > 0 {
+		if assistantContent != "" {
 			s.AddMessage("assistant", assistantContent)
 		}
 
