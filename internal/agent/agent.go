@@ -2,10 +2,14 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"os"
 	"path/filepath"
 	"strings"
@@ -469,7 +473,16 @@ func (a *Agent) buildMultimodalContent(text string, mediaPaths []string) ([]llm.
 		} else {
 			// 图片使用 image_url 格式
 			mimeType := detectMimeType(data)
-			base64Data := encodeBase64(data)
+
+			// 压缩图片以符合 API 限制（base64 最大 10MB，但压缩到 8MB 以内更安全）
+			compressedData, err := compressImageForLLM(data, 8*1024*1024)
+			if err != nil {
+				logger.Warn("Failed to compress image, using original", "error", err)
+				compressedData = data
+			}
+
+			base64Data := base64.StdEncoding.EncodeToString(compressedData)
+			logger.Info("Processing image for multimodal", "path", path, "originalSize", len(data), "compressedSize", len(compressedData), "base64Size", len(base64Data))
 
 			parts = append(parts, llm.ContentPart{
 				Type: "image_url",
@@ -854,4 +867,88 @@ func (a *Agent) executeTool(ctx context.Context, tc *llm.ToolCall) (string, erro
 
 func generateID() string {
 	return uuid.New().String()[:8]
+}
+
+// compressImageForLLM 压缩图片以符合 LLM API 大小限制
+// maxSize 是 base64 编码后的最大字节数
+func compressImageForLLM(imageData []byte, maxBase64Size int) ([]byte, error) {
+	// 先检查原始大小（base64 编码后）
+	base64Size := (len(imageData)+2)/3*4 + len("data:image/jpeg;base64,")
+	if base64Size <= maxBase64Size {
+		return imageData, nil
+	}
+
+	// 解码图片
+	img, _, err := image.Decode(bytes.NewReader(imageData))
+	if err != nil {
+		return nil, fmt.Errorf("decode image: %w", err)
+	}
+
+	// 尝试不同质量级别压缩
+	qualities := []int{85, 70, 55, 40, 25}
+	for _, quality := range qualities {
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
+			continue
+		}
+
+		// 检查 base64 编码后的大小
+		encodedSize := (buf.Len()+2)/3*4 + len("data:image/jpeg;base64,")
+		if encodedSize <= maxBase64Size {
+			logger.Info("Image compressed for LLM", "quality", quality, "originalSize", len(imageData), "compressedSize", buf.Len())
+			return buf.Bytes(), nil
+		}
+	}
+
+	// 如果仍然太大，尝试缩小尺寸
+	bounds := img.Bounds()
+	maxDimension := 1024
+	for maxDimension >= 256 {
+		ratio := float64(maxDimension) / float64(max(bounds.Dx(), bounds.Dy()))
+		if ratio >= 1 {
+			maxDimension -= 128
+			continue
+		}
+
+		newWidth := int(float64(bounds.Dx()) * ratio)
+		newHeight := int(float64(bounds.Dy()) * ratio)
+
+		// 简单的最近邻缩放
+		resized := resizeImage(img, newWidth, newHeight)
+
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, resized, &jpeg.Options{Quality: 70}); err != nil {
+			maxDimension -= 128
+			continue
+		}
+
+		encodedSize := (buf.Len()+2)/3*4 + len("data:image/jpeg;base64,")
+		if encodedSize <= maxBase64Size {
+			logger.Info("Image resized and compressed for LLM", "maxDimension", maxDimension, "compressedSize", buf.Len())
+			return buf.Bytes(), nil
+		}
+
+		maxDimension -= 128
+	}
+
+	return nil, fmt.Errorf("image too large after compression (base64 size still exceeds %d)", maxBase64Size)
+}
+
+// resizeImage 简单的图片缩放
+func resizeImage(img image.Image, newWidth, newHeight int) image.Image {
+	bounds := img.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+
+	xRatio := float64(bounds.Dx()) / float64(newWidth)
+	yRatio := float64(bounds.Dy()) / float64(newHeight)
+
+	for y := 0; y < newHeight; y++ {
+		for x := 0; x < newWidth; x++ {
+			srcX := int(float64(x) * xRatio)
+			srcY := int(float64(y) * yRatio)
+			dst.Set(x, y, img.At(srcX+bounds.Min.X, srcY+bounds.Min.Y))
+		}
+	}
+
+	return dst
 }

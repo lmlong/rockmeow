@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/lingguard/pkg/logger"
 )
 
 // AIGCTool 图像/视频生成工具
@@ -192,24 +194,25 @@ func (t *AIGCTool) generateImage(ctx context.Context, prompt, model, size, style
 		model = t.textToImage
 	}
 
-	// 构建请求
-	parameters := map[string]interface{}{
-		"n": 1,
-	}
-
-	// 注意: wanx2.1 系列模型不支持 size 参数，使用模型默认尺寸
-	// size 参数已弃用，忽略用户传入的 size 值
-
-	if style != "" {
-		parameters["style"] = style
-	}
-
+	// 构建 multimodal-generation API 请求格式
+	// 参考: https://help.aliyun.com/zh/model-studio/wan-image-generation-api-reference
 	reqBody := map[string]interface{}{
 		"model": model,
-		"input": map[string]string{
-			"prompt": prompt,
+		"input": map[string]interface{}{
+			"messages": []map[string]interface{}{
+				{
+					"role": "user",
+					"content": []map[string]string{
+						{
+							"text": prompt,
+						},
+					},
+				},
+			},
 		},
-		"parameters": parameters,
+		"parameters": map[string]interface{}{
+			"n": 1,
+		},
 	}
 
 	// 调用 API
@@ -218,8 +221,16 @@ func (t *AIGCTool) generateImage(ctx context.Context, prompt, model, size, style
 		return "", err
 	}
 
-	// 下载并保存图片
-	if len(result.Output.Results) == 0 {
+	// 提取图片 URL（multimodal-generation 格式）
+	var imageURL string
+	if len(result.Output.Choices) > 0 && len(result.Output.Choices[0].Message.Content) > 0 {
+		imageURL = result.Output.Choices[0].Message.Content[0].Image
+	} else if len(result.Output.Results) > 0 {
+		// 兼容旧的异步格式
+		imageURL = result.Output.Results[0].URL
+	}
+
+	if imageURL == "" {
 		return "", fmt.Errorf("no image generated")
 	}
 
@@ -229,7 +240,6 @@ func (t *AIGCTool) generateImage(ctx context.Context, prompt, model, size, style
 	}
 
 	// 下载图片
-	imageURL := result.Output.Results[0].URL
 	localPath, err := t.downloadFile(ctx, imageURL, "image", ".png")
 	if err != nil {
 		return "", fmt.Errorf("download image: %w", err)
@@ -404,15 +414,27 @@ func (t *AIGCTool) submitImageToVideoTask(ctx context.Context, reqBody interface
 	return result.Output.TaskID, nil
 }
 
-// imageAPIResponse 图片 API 响应
+// imageAPIResponse 图片 API 响应 (multimodal-generation)
 type imageAPIResponse struct {
 	RequestId string `json:"request_id"`
 	Output    struct {
-		TaskID     string `json:"task_id"`
-		TaskStatus string `json:"task_status"`
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Content []struct {
+					Type  string `json:"type"`
+					Image string `json:"image"`
+				} `json:"content"`
+				Role string `json:"role"`
+			} `json:"message"`
+		} `json:"choices"`
+		Finished bool `json:"finished"`
+		// 兼容旧的异步响应格式
+		TaskID     string `json:"task_id,omitempty"`
+		TaskStatus string `json:"task_status,omitempty"`
 		Results    []struct {
 			URL string `json:"url"`
-		} `json:"results"`
+		} `json:"results,omitempty"`
 		Code    string `json:"code,omitempty"`
 		Message string `json:"message,omitempty"`
 	} `json:"output"`
@@ -437,7 +459,8 @@ func (t *AIGCTool) callImageAPI(ctx context.Context, reqBody interface{}) (*imag
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/text2image/image-synthesis", t.apiBase)
+	// wan2.6-t2i 使用 multimodal-generation API（同步）
+	url := "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -445,9 +468,8 @@ func (t *AIGCTool) callImageAPI(ctx context.Context, reqBody interface{}) (*imag
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t.apiKey))
-	req.Header.Set("X-DashScope-Async", "enable")
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
@@ -463,16 +485,15 @@ func (t *AIGCTool) callImageAPI(ctx context.Context, reqBody interface{}) (*imag
 		return nil, fmt.Errorf("API error: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
+	// 调试：打印原始响应
+	logger.Info("Image API response", "body", string(body))
+
 	var result imageAPIResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	// 如果是异步任务，等待结果
-	if result.Output.TaskID != "" && result.Output.TaskStatus != "SUCCEEDED" {
-		return t.waitForImageResult(ctx, result.Output.TaskID)
-	}
-
+	// multimodal-generation 是同步的，直接返回结果
 	return &result, nil
 }
 
