@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	_ "image/png" // 注册 PNG 解码器
 	"io"
 	"net/http"
 	"os"
