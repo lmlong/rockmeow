@@ -249,10 +249,18 @@ func (s *HybridStore) AddMemory(category, content string) error {
 	// 1. 先检查文件存储中是否已有相同或相似内容（最快最可靠）
 	existingMemory, err := s.fileStore.GetMemory()
 	if err == nil && existingMemory != "" {
-		// 检查是否已包含相同内容
-		if strings.Contains(existingMemory, content) {
-			logger.Debug("Skipping duplicate memory in file store", "content", content[:min(50, len(content))])
-			return nil
+		// 按行检查，提取每条记忆内容进行比较
+		lines := strings.Split(existingMemory, "\n")
+		for _, line := range lines {
+			// 提取记忆内容（格式: "- [时间] 内容"）
+			if idx := strings.Index(line, "] "); idx > 0 && idx < len(line)-2 {
+				existingContent := line[idx+2:]
+				// 检查相似度
+				if isSimilarContent(existingContent, content) {
+					logger.Info("Skipping duplicate memory in file store", "existing", existingContent, "new", content)
+					return nil
+				}
+			}
 		}
 	}
 
@@ -266,9 +274,9 @@ func (s *HybridStore) AddMemory(category, content string) error {
 			if idx := strings.Index(bufferContent, "] "); idx > 0 {
 				bufferContent = bufferContent[idx+2:]
 			}
-			if bufferContent == content || strings.Contains(bufferContent, content) || strings.Contains(content, bufferContent) {
+			if isSimilarContent(bufferContent, content) {
 				s.bufferMu.Unlock()
-				logger.Debug("Skipping similar memory in buffer", "content", content[:min(50, len(content))])
+				logger.Info("Skipping similar memory in buffer", "content", content[:min(50, len(content))])
 				return nil
 			}
 		}
@@ -280,7 +288,7 @@ func (s *HybridStore) AddMemory(category, content string) error {
 
 		existing, err := s.Search(ctx, content, 1)
 		if err == nil && len(existing) > 0 && existing[0].Score >= 0.95 {
-			logger.Debug("Skipping duplicate memory in vector store", "score", existing[0].Score, "content", content[:min(50, len(content))])
+			logger.Info("Skipping duplicate memory in vector store", "score", existing[0].Score, "content", content[:min(50, len(content))])
 			return nil
 		}
 	}
@@ -304,6 +312,83 @@ func (s *HybridStore) AddMemory(category, content string) error {
 	}
 
 	return nil
+}
+
+// isSimilarContent 检查两个内容是否相似
+// 使用多种策略：完全匹配、子串匹配、关键词重叠
+func isSimilarContent(a, b string) bool {
+	// 完全相同
+	if a == b {
+		return true
+	}
+
+	// 子串匹配（双向）
+	if strings.Contains(a, b) || strings.Contains(b, a) {
+		return true
+	}
+
+	// 关键词重叠检测
+	// 提取关键词（简单分词：按空格和标点分割，保留中文连续字符）
+	keywordsA := extractKeywords(a)
+	keywordsB := extractKeywords(b)
+
+	// 计算重叠度
+	if len(keywordsA) > 0 && len(keywordsB) > 0 {
+		overlap := 0
+		for ka := range keywordsA {
+			if keywordsB[ka] {
+				overlap++
+			}
+		}
+		// 如果重叠关键词占比超过 50%，认为相似
+		ratioA := float64(overlap) / float64(len(keywordsA))
+		ratioB := float64(overlap) / float64(len(keywordsB))
+		if ratioA >= 0.5 || ratioB >= 0.5 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractKeywords 提取关键词
+func extractKeywords(text string) map[string]bool {
+	keywords := make(map[string]bool)
+
+	// 简单分词：提取中文词组和英文单词
+	var current strings.Builder
+	isChinese := func(r rune) bool {
+		return r >= 0x4e00 && r <= 0x9fff
+	}
+
+	for _, r := range text {
+		if isChinese(r) {
+			current.WriteRune(r)
+		} else if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
+			current.WriteRune(r)
+		} else {
+			// 遇到分隔符，保存当前词
+			if current.Len() > 1 {
+				keywords[current.String()] = true
+			}
+			current.Reset()
+		}
+	}
+	// 保存最后一个词
+	if current.Len() > 1 {
+		keywords[current.String()] = true
+	}
+
+	// 对于中文，还要提取双字组合（简单 n-gram）
+	runes := []rune(text)
+	for i := 0; i < len(runes)-1; i++ {
+		if isChinese(runes[i]) && isChinese(runes[i+1]) {
+			bigram := string(runes[i : i+2])
+			keywords[bigram] = true
+		}
+	}
+
+	return keywords
 }
 
 // min 返回两个整数中的较小值
