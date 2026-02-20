@@ -15,6 +15,7 @@ type Config struct {
 	Tools     ToolsConfig               `json:"tools"`
 	Storage   StorageConfig             `json:"storage"`
 	Logging   LoggingConfig             `json:"logging"`
+	Speech    *SpeechConfig             `json:"speech,omitempty"`    // 语音识别配置
 	Cron      *CronConfig               `json:"cron,omitempty"`      // 定时任务配置
 	Heartbeat *HeartbeatConfig          `json:"heartbeat,omitempty"` // 心跳服务配置
 }
@@ -201,6 +202,18 @@ type CronConfig struct {
 type HeartbeatConfig struct {
 	Enabled  bool `json:"enabled"`            // 是否启用心跳服务
 	Interval int  `json:"interval,omitempty"` // 心跳间隔（分钟），默认 30
+}
+
+// SpeechConfig 语音识别配置
+type SpeechConfig struct {
+	Enabled  bool   `json:"enabled"`            // 是否启用语音识别
+	Provider string `json:"provider,omitempty"` // 提供商: "qwen" (阿里云通义千问 Paraformer)
+	APIKey   string `json:"apiKey,omitempty"`   // API Key (可从 Provider 配置继承)
+	APIBase  string `json:"apiBase,omitempty"`  // API 基础 URL
+	Model    string `json:"model,omitempty"`    // 模型名称，默认 paraformer-realtime-v2
+	Format   string `json:"format,omitempty"`   // 音频格式，默认 opus
+	Language string `json:"language,omitempty"` // 语言，默认 zh
+	Timeout  int    `json:"timeout,omitempty"`  // 超时时间（秒），默认 60
 }
 
 // DefaultConfig 默认配置

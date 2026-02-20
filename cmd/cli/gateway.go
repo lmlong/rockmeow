@@ -197,7 +197,7 @@ func registerChannels(cfg *config.Config, mgr *channels.Manager, handler channel
 		if cfg.Channels.Feishu.AppID == "" || cfg.Channels.Feishu.AppSecret == "" {
 			return fmt.Errorf("feishu channel enabled but appId or appSecret not configured")
 		}
-		mgr.RegisterChannel(channels.NewFeishuChannel(cfg.Channels.Feishu, handler))
+		mgr.RegisterChannel(channels.NewFeishuChannel(cfg.Channels.Feishu, cfg.Speech, cfg.Providers, handler))
 		logger.Info("Feishu channel registered")
 	}
 

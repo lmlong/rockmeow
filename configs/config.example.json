@@ -182,6 +182,19 @@
     "compress": false
   },
 
+  "speech": {
+    "_comment": "==================== 语音识别配置 ====================",
+    "_desc": "用于飞书语音消息转文字，使用阿里云通义千问 Paraformer",
+    "_docs": "https://help.aliyun.com/zh/model-studio/developer-reference/paraformer",
+    "_note": "apiKey 自动从 providers.qwen 继承，无需单独配置",
+    "enabled": false,
+    "provider": "qwen",
+    "model": "qwen3-asr-flash",
+    "format": "opus",
+    "language": "zh",
+    "timeout": 60
+  },
+
   "cron": {
     "_comment": "==================== 定时任务配置 ====================",
     "enabled": true,

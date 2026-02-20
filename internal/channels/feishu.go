@@ -21,6 +21,7 @@ import (
 
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/pkg/logger"
+	"github.com/lingguard/pkg/speech"
 	"github.com/lingguard/pkg/stream"
 )
 
@@ -36,10 +37,12 @@ var msgTypeMap = map[string]string{
 // FeishuChannel 飞书 WebSocket 渠道
 type FeishuChannel struct {
 	cfg              *config.FeishuConfig
+	speechCfg        *config.SpeechConfig
 	client           *lark.Client
 	wsClient         *larkws.Client
 	handler          MessageHandler
 	streamingHandler StreamingMessageHandler
+	speechService    speech.Service
 	mu               sync.RWMutex
 	running          bool
 	allowMap         map[string]bool
@@ -54,19 +57,45 @@ type FeishuChannel struct {
 }
 
 // NewFeishuChannel 创建飞书渠道
-func NewFeishuChannel(cfg *config.FeishuConfig, handler MessageHandler) *FeishuChannel {
+func NewFeishuChannel(cfg *config.FeishuConfig, speechCfg *config.SpeechConfig, providers map[string]config.ProviderConfig, handler MessageHandler) *FeishuChannel {
 	allowMap := make(map[string]bool)
 	for _, id := range cfg.AllowFrom {
 		allowMap[id] = true
 	}
 	fc := &FeishuChannel{
-		cfg:      cfg,
-		handler:  handler,
-		allowMap: allowMap,
+		cfg:       cfg,
+		speechCfg: speechCfg,
+		handler:   handler,
+		allowMap:  allowMap,
 	}
 	// 检查是否实现了流式处理器接口
 	if sh, ok := handler.(StreamingMessageHandler); ok {
 		fc.streamingHandler = sh
+	}
+	// 初始化语音识别服务
+	if speechCfg != nil && speechCfg.Enabled {
+		// 如果没有配置 apiKey，从对应 provider 获取
+		apiKey := speechCfg.APIKey
+		if apiKey == "" && speechCfg.Provider != "" {
+			if providerCfg, ok := providers[speechCfg.Provider]; ok {
+				apiKey = providerCfg.APIKey
+			}
+		}
+		svc, err := speech.NewService(&speech.Config{
+			Provider: speechCfg.Provider,
+			APIKey:   apiKey,
+			APIBase:  speechCfg.APIBase,
+			Model:    speechCfg.Model,
+			Format:   speechCfg.Format,
+			Language: speechCfg.Language,
+			Timeout:  speechCfg.Timeout,
+		})
+		if err != nil {
+			logger.Warn("Failed to init speech service", "error", err)
+		} else {
+			fc.speechService = svc
+			logger.Info("Speech recognition enabled for Feishu channel", "provider", speechCfg.Provider)
+		}
 	}
 	return fc
 }
@@ -209,6 +238,26 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 
 	if msgType == "text" {
 		content = f.parseTextContent(msg.Content)
+	} else if msgType == "audio" {
+		// 下载音频并进行语音识别
+		audioPath, err := f.downloadAudio(ctx, msg.Content, safeString(msg.MessageId))
+		if err != nil {
+			logger.Warn("Failed to download audio", "error", err)
+			content = "[audio: download failed]"
+		} else if f.speechService != nil {
+			// 语音识别
+			result, err := f.speechService.Transcribe(ctx, audioPath)
+			if err != nil {
+				logger.Warn("Failed to transcribe audio", "error", err)
+				content = fmt.Sprintf("[audio: transcription failed, file saved to %s]", audioPath)
+			} else {
+				content = result.Text
+				logger.Info("Audio transcribed", "text", result.Text, "duration", result.Duration, "messageId", messageID)
+			}
+		} else {
+			content = "[audio: speech recognition not configured]"
+			logger.Info("Downloaded audio but speech service not available", "path", audioPath, "messageId", messageID)
+		}
 	} else if msgType == "image" {
 		// 下载图片并保存到本地
 		imagePath, err := f.downloadImage(ctx, msg.Content, safeString(msg.MessageId))
@@ -795,6 +844,67 @@ func (f *FeishuChannel) downloadVideo(ctx context.Context, content *string, mess
 	// 使用 SDK 提供的 WriteFile 方法保存文件
 	if err := resp.WriteFile(filePath); err != nil {
 		return "", fmt.Errorf("write video file: %w", err)
+	}
+
+	return filePath, nil
+}
+
+// downloadAudio 下载飞书音频并保存到本地
+func (f *FeishuChannel) downloadAudio(ctx context.Context, content *string, messageID string) (string, error) {
+	if content == nil || f.client == nil {
+		return "", fmt.Errorf("invalid parameters")
+	}
+
+	// 解析音频消息内容: {"file_key": "file_xxx", "duration": 5000}
+	var audioMsg struct {
+		FileKey  string `json:"file_key"`
+		Duration int    `json:"duration"`
+	}
+	if err := json.Unmarshal([]byte(*content), &audioMsg); err != nil {
+		return "", fmt.Errorf("parse audio content: %w", err)
+	}
+
+	if audioMsg.FileKey == "" {
+		return "", fmt.Errorf("empty file_key")
+	}
+
+	// 创建媒体目录
+	home, _ := os.UserHomeDir()
+	mediaDir := filepath.Join(home, ".lingguard", "media")
+	if err := os.MkdirAll(mediaDir, 0755); err != nil {
+		return "", fmt.Errorf("create media dir: %w", err)
+	}
+
+	// 生成文件名 (飞书语音通常是 opus 格式)
+	ext := ".opus"
+	timestamp := time.Now().UnixNano()
+	shortID := messageID
+	if len(messageID) > 8 {
+		shortID = messageID[:8]
+	}
+	filename := fmt.Sprintf("feishu_audio_%d_%s%s", timestamp, shortID, ext)
+	filePath := filepath.Join(mediaDir, filename)
+
+	// 获取音频资源请求
+	req := larkim.NewGetMessageResourceReqBuilder().
+		MessageId(messageID).
+		FileKey(audioMsg.FileKey).
+		Type("file").
+		Build()
+
+	// 获取音频并直接保存到文件
+	resp, err := f.client.Im.MessageResource.Get(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("get audio resource: %w", err)
+	}
+
+	if resp.Code != 0 {
+		return "", fmt.Errorf("get audio failed: code=%d, msg=%s", resp.Code, resp.Msg)
+	}
+
+	// 使用 SDK 提供的 WriteFile 方法保存文件
+	if err := resp.WriteFile(filePath); err != nil {
+		return "", fmt.Errorf("write audio file: %w", err)
 	}
 
 	return filePath, nil

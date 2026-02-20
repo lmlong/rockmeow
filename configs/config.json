@@ -108,6 +108,14 @@
     "maxBackups": 5,
     "compress": false
   },
+  "speech": {
+    "enabled": true,
+    "provider": "qwen",
+    "model": "qwen3-asr-flash",
+    "format": "opus",
+    "language": "zh",
+    "timeout": 60
+  },
   "cron": {
     "enabled": true,
     "storePath": "~/.lingguard/cron/jobs.json"
