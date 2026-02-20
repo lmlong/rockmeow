@@ -42,6 +42,11 @@
       "enabled": true,
       "recentDays": 3,
       "maxHistoryLines": 1000,
+      "autoRecall": true,
+      "autoRecallTopK": 3,
+      "autoRecallMinScore": 0.3,
+      "autoCapture": true,
+      "captureMaxChars": 500,
       "vector": {
         "enabled": true,
         "embedding": {
@@ -93,6 +98,12 @@
       "textToImage": "wan2.6-t2i",
       "textToVideo": "wan2.6-t2v",
       "imageToVideo": "wan2.6-i2v-flash"
+    },
+    "tts": {
+      "enabled": true,
+      "provider": "qwen",
+      "model": "qwen3-tts-flash",
+      "voice": "Cherry"
     }
   },
   "storage": {

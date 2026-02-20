@@ -140,6 +140,8 @@ type ToolsConfig struct {
 	OpenCode *OpenCodeConfig `json:"opencode,omitempty"` // OpenCode HTTP API 配置
 	// AIGC (AI Generated Content) - 图像/视频生成
 	AIGC *AIGCConfig `json:"aigc,omitempty"` // AI 内容生成配置
+	// TTS (Text-to-Speech) - 语音合成
+	TTS *TTSConfig `json:"tts,omitempty"` // 语音合成配置
 }
 
 // AIGCConfig AI 内容生成配置（图像/视频）
@@ -214,6 +216,19 @@ type SpeechConfig struct {
 	Format   string `json:"format,omitempty"`   // 音频格式，默认 opus
 	Language string `json:"language,omitempty"` // 语言，默认 zh
 	Timeout  int    `json:"timeout,omitempty"`  // 超时时间（秒），默认 60
+}
+
+// TTSConfig 语音合成配置
+type TTSConfig struct {
+	Enabled   bool   `json:"enabled"`             // 是否启用语音合成
+	Provider  string `json:"provider,omitempty"`  // 提供商: "qwen" (阿里云通义千问)
+	APIKey    string `json:"apiKey,omitempty"`    // API Key (可从 Provider 配置继承)
+	APIBase   string `json:"apiBase,omitempty"`   // API 基础 URL
+	Model     string `json:"model,omitempty"`     // 模型名称，默认 qwen3-tts-flash
+	Voice     string `json:"voice,omitempty"`     // 音色，默认 Cherry
+	Language  string `json:"language,omitempty"`  // 语言，默认自动检测
+	Timeout   int    `json:"timeout,omitempty"`   // 超时时间（秒），默认 60
+	OutputDir string `json:"outputDir,omitempty"` // 输出目录，默认 ~/.lingguard/workspace/generated
 }
 
 // DefaultConfig 默认配置

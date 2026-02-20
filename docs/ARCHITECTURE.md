@@ -25,6 +25,7 @@
 | 定时任务 | Cron 调度，支持消息投递 |
 | 子代理系统 | 后台异步执行复杂任务 |
 | 安全沙箱 | 工作空间限制和权限控制 |
+| 语音识别 | 飞书语音消息转文字（Qwen3-ASR） |
 
 ---
 
@@ -107,7 +108,7 @@
 | 独立多模态 Provider | ✅ 独有 | ❌ | 可配置独立模型 |
 | ClawHub 技能库 | ❌ | ✅ | 搜索安装技能 |
 | OAuth 登录 | ❌ | ✅ | Codex/Copilot |
-| 语音转写 | ❌ | ✅ | Groq Whisper |
+| 语音转写 | ✅ Qwen3-ASR | ✅ Groq Whisper | 都支持 |
 | Docker 支持 | ❌ | ✅ | 官方镜像 |
 
 ### 2.3 实现差异详解
@@ -221,6 +222,20 @@ async def run_task():
 
 ```
 用户消息 ──▶ Feishu WebSocket ──▶ AgentAdapter ──▶ Agent Loop
+                │
+                ▼ (语音消息)
+         ┌──────────────┐
+         │ 下载音频文件 │
+         └──────────────┘
+                │
+                ▼
+         ┌──────────────┐
+         │ ASR 语音转写 │
+         │ (Qwen3-ASR)  │
+         └──────────────┘
+                │
+                ▼
+           转写文本 ──▶ Agent Loop
                                       │
                                       ▼
                               ┌──────────────┐
@@ -330,6 +345,8 @@ lingguard/
 │   │   ├── file_store.go
 │   │   ├── context_builder.go
 │   │   └── file_store_test.go
+│   ├── speech/             # 语音识别
+│   │   └── asr.go          # Qwen3-ASR 服务
 │   └── logger/             # 日志
 │       └── logger.go
 ├── skills/                 # 技能目录
@@ -864,6 +881,161 @@ const (
 type StreamCallback func(event StreamEvent)
 ```
 
+### 4.9 语音识别系统
+
+LingGuard 支持飞书语音消息的自动转写，参考 [OpenClaw](https://github.com/openclaw/openclaw) 的语音交互能力实现。
+
+#### 4.9.1 架构设计
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     飞书语音消息                                  │
+│                   (opus 格式音频)                                │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     Feishu Channel                               │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
+│  │ 接收 file_key│───▶│ 下载音频    │───▶│ 调用 ASR    │         │
+│  └─────────────┘    └─────────────┘    └─────────────┘         │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Speech Service                              │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
+│  │ Base64 编码 │───▶│ HTTP REST   │───▶│ 返回文本    │         │
+│  └─────────────┘    │ API 调用    │    └─────────────┘         │
+│                     └─────────────┘                             │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                        转写文本 → Agent 处理
+```
+
+#### 4.9.2 支持的 ASR 模型
+
+| 模型 | 协议 | API 端点 | 说明 |
+|------|------|----------|------|
+| `qwen3-asr-flash` | HTTP REST | OpenAI 兼容模式 | 推荐，稳定可靠 |
+| `fun-asr-realtime` | WebSocket | WebSocket 流式 | 实时识别，实现复杂 |
+| `fun-asr` | HTTP REST | 异步任务 | 需要公网 URL |
+
+#### 4.9.3 Qwen3-ASR 实现细节
+
+使用 OpenAI 兼容模式调用阿里云 DashScope API：
+
+```go
+// pkg/speech/asr.go
+
+type QwenASR struct {
+    config  *Config
+    client  *http.Client
+    apiBase string  // https://dashscope.aliyuncs.com/compatible-mode/v1
+}
+
+// TranscribeFromBytes 从字节流转写
+func (a *QwenASR) TranscribeFromBytes(ctx context.Context, audioData []byte, format string) (*TranscriptionResult, error) {
+    // 1. 构建 base64 data URI
+    mimeType := a.getMimeType(format)  // audio/opus
+    dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(audioData))
+
+    // 2. 构建请求体（OpenAI 兼容格式）
+    requestBody := map[string]any{
+        "model": a.config.Model,  // qwen3-asr-flash
+        "messages": []map[string]any{
+            {
+                "role": "user",
+                "content": []map[string]any{
+                    {
+                        "type": "input_audio",
+                        "input_audio": map[string]any{
+                            "data": dataURI,
+                        },
+                    },
+                },
+            },
+        },
+        "asr_options": map[string]any{
+            "enable_itn": false,
+            "language": a.config.Language,  // zh
+        },
+    }
+
+    // 3. 调用 API
+    url := fmt.Sprintf("%s/chat/completions", a.apiBase)
+    // ...
+}
+```
+
+#### 4.9.4 与 OpenClaw 对比
+
+| 方面 | LingGuard | OpenClaw |
+|------|-----------|----------|
+| **ASR 提供商** | Qwen3-ASR | OpenAI Whisper / Qwen |
+| **API 协议** | HTTP REST (OpenAI 兼容) | 相同 |
+| **音频格式** | opus (飞书默认) | 多格式支持 |
+| **API Key 继承** | ✅ 从 providers.qwen 继承 | 单独配置 |
+| **Base64 编码** | ✅ 支持 | ✅ 支持 |
+
+#### 4.9.5 配置说明
+
+```json
+{
+  "speech": {
+    "enabled": true,
+    "provider": "qwen",           // 从 providers.qwen 继承 apiKey
+    "model": "qwen3-asr-flash",   // ASR 模型
+    "format": "opus",             // 飞书语音格式
+    "language": "zh",             // 语言
+    "timeout": 60                 // 超时（秒）
+  }
+}
+```
+
+**配置要点：**
+- `apiKey` 无需配置，自动从 `providers.{provider}` 继承
+- `format` 默认 `opus`，飞书语音消息格式
+- `language` 默认 `zh`，支持多语言
+
+#### 4.9.6 飞书渠道集成
+
+```go
+// internal/channels/feishu.go
+
+func (c *FeishuChannel) handleAudioMessage(ctx context.Context, event *lark.Event) error {
+    // 1. 解析消息获取 file_key
+    var msg struct {
+        FileKey  string `json:"file_key"`
+        Duration int    `json:"duration"`
+    }
+
+    // 2. 下载音频文件
+    audioData, err := c.downloadAudio(ctx, msg.FileKey)
+
+    // 3. 调用 ASR 服务
+    if c.speechService != nil {
+        result, err := c.speechService.TranscribeFromBytes(ctx, audioData, "opus")
+        if err == nil {
+            text = result.Text  // 使用转写文本
+        }
+    }
+
+    // 4. 传递给 Agent 处理
+    return c.handler.Handle(ctx, &Message{Content: text, ...})
+}
+```
+
+#### 4.9.7 核心文件
+
+| 文件 | 说明 |
+|------|------|
+| `pkg/speech/asr.go` | ASR 服务实现（Qwen3-ASR） |
+| `internal/channels/feishu.go` | 飞书语音消息处理 |
+| `internal/config/config.go` | SpeechConfig 配置结构 |
+| `cmd/cli/gateway.go` | 语音服务初始化 |
+
 ---
 
 ## 5. 配置管理
@@ -921,6 +1093,14 @@ config.json 配置 > spec.go 默认值
   "cron": {
     "enabled": true,
     "storePath": "~/.lingguard/cron/jobs.json"
+  },
+  "speech": {
+    "enabled": true,
+    "provider": "qwen",
+    "model": "qwen3-asr-flash",
+    "format": "opus",
+    "language": "zh",
+    "timeout": 60
   },
   "logging": {
     "level": "info",
@@ -1045,6 +1225,7 @@ type MCPManager struct {
 | QQ 渠道 | ✅ |
 | 向量记忆（sqlite-vec） | ✅ |
 | 自动召回/捕获（OpenClaw 风格） | ✅ |
+| 语音识别（Qwen3-ASR） | ✅ |
 
 ### Phase 7: 计划中
 
@@ -1185,8 +1366,10 @@ skills/builtin/moltbook/
 ## 12. 参考资料
 
 - [nanobot](https://github.com/HKUDS/nanobot) - 参考架构设计
+- [OpenClaw](https://github.com/openclaw/openclaw) - 语音交互能力参考
 - [OpenAI API](https://platform.openai.com/docs/api-reference) - LLM API规范
 - [Anthropic API](https://docs.anthropic.com/) - Claude API 规范
 - [飞书开放平台](https://open.feishu.cn/document/) - 飞书开发文档
 - [MCP 规范](https://modelcontextprotocol.io/) - Model Context Protocol
 - [Moltbook](https://www.moltbook.com/) - AI Agent 社交网络
+- [Qwen ASR API](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference) - 阿里云语音识别

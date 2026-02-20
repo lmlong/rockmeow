@@ -342,8 +342,8 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 
 	// Send reply
 	if reply != "" {
-		// 检查是否包含生成的图片或视频
-		if strings.Contains(reply, "[GENERATED_IMAGE:") || strings.Contains(reply, "[GENERATED_VIDEO:") {
+		// 检查是否包含生成的图片、视频或音频
+		if strings.Contains(reply, "[GENERATED_IMAGE:") || strings.Contains(reply, "[GENERATED_VIDEO:") || strings.Contains(reply, "[GENERATED_AUDIO:") {
 			return f.SendWithImages(ctx, replyTo, reply)
 		}
 		return f.sendReply(ctx, replyTo, reply)
@@ -396,8 +396,8 @@ func (f *FeishuChannel) handleMessageStream(ctx context.Context, msg *Message, r
 			}
 
 		case stream.EventToolEnd:
-			// 检查工具结果是否包含生成的图片或视频，如果有则上传并发送
-			if strings.Contains(event.ToolResult, "[GENERATED_IMAGE:") || strings.Contains(event.ToolResult, "[GENERATED_VIDEO:") {
+			// 检查工具结果是否包含生成的图片、视频或音频，如果有则上传并发送
+			if strings.Contains(event.ToolResult, "[GENERATED_IMAGE:") || strings.Contains(event.ToolResult, "[GENERATED_VIDEO:") || strings.Contains(event.ToolResult, "[GENERATED_AUDIO:") {
 				go func() {
 					// 处理图片
 					imagePattern := regexp.MustCompile(`\[GENERATED_IMAGE:([^\]]+)\]`)
@@ -438,6 +438,26 @@ func (f *FeishuChannel) handleMessageStream(ctx context.Context, msg *Message, r
 							}
 						}
 					}
+
+					// 处理音频
+					audioPattern := regexp.MustCompile(`\[GENERATED_AUDIO:([^\]]+)\]`)
+					audioMatches := audioPattern.FindAllStringSubmatch(event.ToolResult, -1)
+					for _, match := range audioMatches {
+						if len(match) > 1 {
+							audioPath := match[1]
+							logger.Info("Auto-uploading generated audio", "path", audioPath)
+
+							fileKey, err := f.uploadFile(context.Background(), audioPath)
+							if err != nil {
+								logger.Warn("Failed to upload audio", "path", audioPath, "error", err)
+								continue
+							}
+
+							if err := f.sendFileMessage(context.Background(), replyTo, fileKey); err != nil {
+								logger.Warn("Failed to send audio message", "error", err)
+							}
+						}
+					}
 				}()
 			}
 
@@ -445,8 +465,8 @@ func (f *FeishuChannel) handleMessageStream(ctx context.Context, msg *Message, r
 			// 最终更新
 			content := contentBuilder.String()
 			if content != "" {
-				// 检查是否包含生成的图片或视频
-				if strings.Contains(content, "[GENERATED_IMAGE:") || strings.Contains(content, "[GENERATED_VIDEO:") {
+				// 检查是否包含生成的图片、视频或音频
+				if strings.Contains(content, "[GENERATED_IMAGE:") || strings.Contains(content, "[GENERATED_VIDEO:") || strings.Contains(content, "[GENERATED_AUDIO:") {
 					// 使用 SendWithImages 发送带媒体的消息
 					f.SendWithImages(ctx, replyTo, content)
 				} else if messageID == "" {
@@ -1111,15 +1131,25 @@ func (f *FeishuChannel) sendImageMessage(ctx context.Context, receiveID, imageKe
 	return nil
 }
 
-// SendWithImages 发送消息（支持图片）
-// 检测内容中的 [GENERATED_IMAGE:路径] 标记，上传图片并发送
+// SendWithImages 发送消息（支持图片、视频、音频）
+// 检测内容中的 [GENERATED_IMAGE:路径]、[GENERATED_VIDEO:路径]、[GENERATED_AUDIO:路径] 标记，上传并发送
 func (f *FeishuChannel) SendWithImages(ctx context.Context, receiveID, content string) error {
 	// 正则匹配 [GENERATED_IMAGE:路径]
 	imagePattern := regexp.MustCompile(`\[GENERATED_IMAGE:([^\]]+)\]`)
-	matches := imagePattern.FindAllStringSubmatch(content, -1)
+	imageMatches := imagePattern.FindAllStringSubmatch(content, -1)
 
-	// 先发送文本内容（移除图片标记）
+	// 正则匹配 [GENERATED_VIDEO:路径]
+	videoPattern := regexp.MustCompile(`\[GENERATED_VIDEO:([^\]]+)\]`)
+	videoMatches := videoPattern.FindAllStringSubmatch(content, -1)
+
+	// 正则匹配 [GENERATED_AUDIO:路径]
+	audioPattern := regexp.MustCompile(`\[GENERATED_AUDIO:([^\]]+)\]`)
+	audioMatches := audioPattern.FindAllStringSubmatch(content, -1)
+
+	// 先发送文本内容（移除所有媒体标记）
 	textContent := imagePattern.ReplaceAllString(content, "")
+	textContent = videoPattern.ReplaceAllString(textContent, "")
+	textContent = audioPattern.ReplaceAllString(textContent, "")
 
 	// 发送文本消息
 	if strings.TrimSpace(textContent) != "" {
@@ -1129,7 +1159,7 @@ func (f *FeishuChannel) SendWithImages(ctx context.Context, receiveID, content s
 	}
 
 	// 发送图片
-	for _, match := range matches {
+	for _, match := range imageMatches {
 		if len(match) > 1 {
 			imagePath := match[1]
 			logger.Info("Uploading generated image", "path", imagePath)
@@ -1146,10 +1176,7 @@ func (f *FeishuChannel) SendWithImages(ctx context.Context, receiveID, content s
 		}
 	}
 
-	// 处理视频标记 [GENERATED_VIDEO:路径]
-	videoPattern := regexp.MustCompile(`\[GENERATED_VIDEO:([^\]]+)\]`)
-	videoMatches := videoPattern.FindAllStringSubmatch(content, -1)
-
+	// 发送视频
 	for _, match := range videoMatches {
 		if len(match) > 1 {
 			videoPath := match[1]
@@ -1163,6 +1190,24 @@ func (f *FeishuChannel) SendWithImages(ctx context.Context, receiveID, content s
 
 			if err := f.sendFileMessage(ctx, receiveID, fileKey); err != nil {
 				logger.Warn("Failed to send video message", "error", err)
+			}
+		}
+	}
+
+	// 发送音频
+	for _, match := range audioMatches {
+		if len(match) > 1 {
+			audioPath := match[1]
+			logger.Info("Uploading generated audio", "path", audioPath)
+
+			fileKey, err := f.uploadFile(ctx, audioPath)
+			if err != nil {
+				logger.Warn("Failed to upload audio", "path", audioPath, "error", err)
+				continue
+			}
+
+			if err := f.sendFileMessage(ctx, receiveID, fileKey); err != nil {
+				logger.Warn("Failed to send audio message", "error", err)
 			}
 		}
 	}

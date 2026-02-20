@@ -76,10 +76,15 @@
     "memoryWindow": 50,
     "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。",
     "memory": {
-      "_comment": "记忆系统配置",
+      "_comment": "记忆系统配置（参考 OpenClaw 自动捕获/召回机制）",
       "enabled": true,
       "recentDays": 3,
       "maxHistoryLines": 1000,
+      "autoRecall": true,
+      "autoRecallTopK": 3,
+      "autoRecallMinScore": 0.3,
+      "autoCapture": true,
+      "captureMaxChars": 500,
       "vector": {
         "_comment": "向量检索配置（可选，需要配置 Embedding API）",
         "enabled": false,

@@ -14,6 +14,7 @@ import (
 	"github.com/lingguard/internal/skills"
 	"github.com/lingguard/internal/tools"
 	"github.com/lingguard/pkg/logger"
+	ttspkg "github.com/lingguard/pkg/tts"
 )
 
 // AgentBuilder Agent 构建器，统一 Agent 创建逻辑
@@ -200,6 +201,49 @@ func (b *AgentBuilder) Build() (*agent.Agent, error) {
 
 		ag.RegisterTool(tools.NewAIGCTool(aigcCfg))
 		logger.Info("AIGC tool enabled", "textToImage", aigcCfg.TextToImage, "textToVideo", aigcCfg.TextToVideo, "imageToVideo", aigcCfg.ImageToVideo)
+	}
+
+	// 注册 TTS 语音合成工具
+	if b.cfg.Tools.TTS != nil && b.cfg.Tools.TTS.Enabled {
+		ttsCfg := &ttspkg.Config{
+			Provider:  b.cfg.Tools.TTS.Provider,
+			APIKey:    b.cfg.Tools.TTS.APIKey,
+			APIBase:   b.cfg.Tools.TTS.APIBase,
+			Model:     b.cfg.Tools.TTS.Model,
+			Voice:     b.cfg.Tools.TTS.Voice,
+			Language:  b.cfg.Tools.TTS.Language,
+			Timeout:   b.cfg.Tools.TTS.Timeout,
+			OutputDir: b.cfg.Tools.TTS.OutputDir,
+		}
+
+		// 从 Provider 配置继承 API Key
+		if ttsCfg.APIKey == "" {
+			providerName := b.cfg.Tools.TTS.Provider
+			if providerName == "" {
+				providerName = "qwen"
+			}
+			if p, ok := b.cfg.Providers[providerName]; ok {
+				ttsCfg.APIKey = p.APIKey
+			}
+		}
+
+		// 设置默认值
+		if ttsCfg.Provider == "" {
+			ttsCfg.Provider = "qwen"
+		}
+		if ttsCfg.Model == "" {
+			ttsCfg.Model = "qwen3-tts-flash"
+		}
+		if ttsCfg.Voice == "" {
+			ttsCfg.Voice = "Cherry"
+		}
+		if ttsCfg.OutputDir == "" {
+			home, _ := os.UserHomeDir()
+			ttsCfg.OutputDir = filepath.Join(home, ".lingguard", "workspace", "generated")
+		}
+
+		ag.RegisterTool(tools.NewTTSTool(ttsCfg))
+		logger.Info("TTS tool enabled", "model", ttsCfg.Model, "voice", ttsCfg.Voice)
 	}
 
 	// 注册 OpenCode 工具（即使 disabled 也注册，会返回原生工具提示）
