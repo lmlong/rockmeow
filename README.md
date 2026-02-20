@@ -1,6 +1,6 @@
 # LingGuard
 
-一款基于 Go 语言的超轻量级个人 AI 智能助手，参考 [nanobot](https://github.com/HKUDS/nanobot) 设计。
+一款基于 Go 语言的超轻量级个人 AI 智能助手。
 
 ## 特性
 
@@ -305,7 +305,7 @@ MCP 工具命名格式: `mcp_{serverName}_{toolName}`
 name: skill-name
 description: Skill description
 homepage: https://example.com
-metadata: {"nanobot":{"emoji":"🦞","requires":{"bins":["curl"]}}}
+metadata: {"emoji":"🦞","requires":{"bins":["curl"]}}
 ---
 
 # Skill Title
@@ -321,7 +321,7 @@ Skill instructions here...
 
 ## 记忆系统
 
-参考 nanobot 的文件持久化记忆方案：
+文件持久化记忆方案：
 
 ```
 ~/.lingguard/memory/
@@ -435,86 +435,6 @@ task_status --id "task_xxx"
 - 最多 15 次迭代
 - 完成后通知主代理
 
-## 与 nanobot 对比
-
-### 基本定位
-
-| 方面 | LingGuard (本项目) | nanobot |
-|------|-------------------|---------|
-| **语言** | Go | Python |
-| **代码量** | ~8,000+ 行 | ~3,700 行核心代码 |
-| **核心理念** | 极简、高性能、单二进制部署 | 超轻量级、易研究、易扩展 |
-| **内存占用** | ~20MB | ~100MB+ |
-| **启动速度** | 毫秒级 | 秒级 |
-| **部署方式** | 单二进制文件 | pip/uv/Docker |
-
-### 渠道支持对比
-
-| 渠道 | LingGuard | nanobot |
-|------|:---------:|:-------:|
-| 飞书 | ✅ WebSocket 长连接 | ✅ |
-| QQ | ✅ 私聊 | ✅ 私聊 |
-| Telegram | ❌ | ✅ 推荐 |
-| Discord | ❌ | ✅ |
-| WhatsApp | ❌ | ✅ |
-| Slack | ❌ | ✅ |
-| Email | ❌ | ✅ |
-| 钉钉 | ❌ | ✅ |
-| Mochat | ❌ | ✅ 自动配置 |
-
-### LLM 提供商支持
-
-| Provider | LingGuard | nanobot |
-|----------|:---------:|:-------:|
-| OpenAI / Anthropic / DeepSeek | ✅ | ✅ |
-| OpenRouter (推荐) | ✅ | ✅ |
-| Qwen / GLM / MiniMax / Moonshot | ✅ | ✅ |
-| Gemini / Groq / vLLM | ✅ | ✅ |
-| AiHubMix / SiliconFlow | ✅ (部分) | ✅ |
-| OpenAI Codex (OAuth) | ❌ | ✅ |
-| GitHub Copilot (OAuth) | ❌ | ✅ |
-
-### 功能对比
-
-| 功能 | LingGuard | nanobot |
-|------|:---------:|:-------:|
-| **核心功能** |||
-| Agent Loop | ✅ | ✅ |
-| 会话管理 | ✅ | ✅ |
-| 记忆系统 | ✅ | ✅ |
-| 工具系统 | ✅ | ✅ |
-| 技能系统 | ✅ | ✅ |
-| **高级功能** |||
-| 定时任务 (Cron) | ✅ | ✅ |
-| 时区支持 | ✅ | ✅ |
-| 子代理 (Subagent) | ✅ | ✅ |
-| 流式响应 | ✅ | ✅ |
-| MCP (Stdio + HTTP) | ✅ | ✅ |
-| Agent Social Network | ✅ Moltbook | ✅ Moltbook + ClawdChat |
-| **独有功能** |||
-| 渐进式技能加载 | ✅ 独有 | ❌ |
-| 多模态支持 | ✅ 图片+视频 | 🚧 计划中 |
-| 独立多模态 Provider | ✅ 独有 | ❌ |
-| AIGC 生成工具 | ✅ 图片+视频 | ❌ |
-| 语音合成 (TTS) | ✅ Qwen TTS | ❌ |
-| ClawHub 技能库 | ❌ | ✅ |
-| OAuth 登录 | ❌ | ✅ Codex/Copilot |
-| 语音转录 | ✅ Qwen3-ASR | ✅ Groq Whisper |
-| Docker 支持 | ❌ | ✅ |
-
-### 适用场景
-
-| 场景 | 推荐选择 | 理由 |
-|------|----------|------|
-| **个人桌面使用** | LingGuard | 低资源占用、快速启动 |
-| **需要多种聊天平台** | nanobot | 9 种渠道支持 |
-| **服务器长期运行** | 两者皆可 | 都支持 Gateway 模式 |
-| **研究和二次开发** | nanobot | 代码更精简、Python 易上手 |
-| **生产环境部署** | LingGuard | 单二进制、无依赖 |
-| **需要 OAuth 登录** | nanobot | 支持 Codex/Copilot |
-| **需要语音交互** | nanobot | Groq 语音转录 |
-| **节省 Token 成本** | LingGuard | 渐进式技能加载 |
-
 ## 目录结构
 
 ```
@@ -559,6 +479,84 @@ GOOS=darwin GOARCH=amd64 go build -o lingguard-darwin ./cmd/lingguard
 GOOS=windows GOARCH=amd64 go build -o lingguard.exe ./cmd/lingguard
 ```
 
+## 部署方式
+
+### 方式一：Make 安装（推荐）
+
+```bash
+# 完整安装（二进制 + 配置 + systemd 服务）
+make install
+
+# 仅安装二进制
+make install-bin
+
+# 安装到指定目录
+make install PREFIX=/usr/local
+
+# 启用系统级服务
+make install SERVICE=system
+
+# 启用用户级服务（默认）
+make install SERVICE=user
+```
+
+安装完成后：
+- 二进制文件: `~/.local/bin/lingguard` 或 `$PREFIX/bin/lingguard`
+- 配置目录: `~/.lingguard/`
+- systemd 服务: `lingguard.service`
+
+```bash
+# 启动服务
+systemctl --user start lingguard
+
+# 开机自启
+systemctl --user enable lingguard
+
+# 查看状态
+systemctl --user status lingguard
+
+# 查看日志
+journalctl --user -u lingguard -f
+```
+
+### 方式二：打包部署
+
+```bash
+# 打包发布版本
+make package
+
+# 打包并生成校验和
+make package VERSION=1.0.0
+```
+
+打包后的文件结构：
+```
+dist/
+├── lingguard-1.0.0-linux-amd64.tar.gz
+├── lingguard-1.0.0-linux-arm64.tar.gz
+├── lingguard-1.0.0-darwin-amd64.tar.gz
+├── lingguard-1.0.0-darwin-arm64.tar.gz
+└── lingguard-1.0.0-windows-amd64.zip
+```
+
+部署打包文件：
+```bash
+# 解压到目标目录
+tar -xzf lingguard-1.0.0-linux-amd64.tar.gz -C /opt/
+
+# 创建配置目录
+mkdir -p ~/.lingguard
+
+# 复制配置模板
+cp /opt/lingguard/configs/config.example.json ~/.lingguard/config.json
+
+# 编辑配置
+vim ~/.lingguard/config.json
+
+# 运行
+/opt/lingguard/lingguard gateway
+```
+
 ## 依赖
 
 - Go 1.23+
@@ -568,7 +566,7 @@ GOOS=windows GOARCH=amd64 go build -o lingguard.exe ./cmd/lingguard
 
 ## 文档
 
-- [架构文档](docs/ARCHITECTURE.md) - 系统架构和与 nanobot 的对比
+- [架构文档](docs/ARCHITECTURE.md) - 系统架构
 - [API 文档](docs/API.md) - API 接口和使用说明
 
 ## License
