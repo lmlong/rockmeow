@@ -745,6 +745,13 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 		maxIterations = 1
 	}
 
+	// 确保在函数结束时执行自动捕获
+	defer func() {
+		if a.config.MemoryConfig != nil && a.config.MemoryConfig.AutoCapture {
+			go a.captureMemories(sessionID, messages)
+		}
+	}()
+
 	for iterations < maxIterations {
 		iterations++
 
@@ -837,10 +844,6 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 
 		// 检查是否有工具调用
 		if len(toolCalls) == 0 {
-			// 自动捕获：对话结束时分析用户消息并存储重要信息
-			if a.config.MemoryConfig != nil && a.config.MemoryConfig.AutoCapture {
-				go a.captureMemories(sessionID, messages)
-			}
 			callback(stream.NewDoneEvent())
 			return nil
 		}
@@ -1046,14 +1049,18 @@ func (a *Agent) formatRelevantMemories(records []*memory.VectorRecord) string {
 // captureMemories 自动捕获记忆
 func (a *Agent) captureMemories(sessionID string, messages []llm.Message) {
 	if a.hybridStore == nil && a.memoryStore == nil {
+		logger.Debug("Auto-capture skipped: no memory store")
 		return
 	}
+
+	logger.Debug("Auto-capture analyzing messages", "session", sessionID, "messageCount", len(messages))
 
 	maxChars := 500
 	if a.config.MemoryConfig != nil && a.config.MemoryConfig.CaptureMaxChars > 0 {
 		maxChars = a.config.MemoryConfig.CaptureMaxChars
 	}
 
+	capturedCount := 0
 	// 分析用户消息
 	for _, msg := range messages {
 		if msg.Role != "user" {
@@ -1062,6 +1069,7 @@ func (a *Agent) captureMemories(sessionID string, messages []llm.Message) {
 
 		result := memory.AnalyzeForCapture(msg.Content, maxChars)
 		if !result.Captured {
+			logger.Debug("Auto-capture skipped message", "reason", "no trigger match", "content", msg.Content[:min(30, len(msg.Content))])
 			continue
 		}
 
@@ -1072,14 +1080,20 @@ func (a *Agent) captureMemories(sessionID string, messages []llm.Message) {
 				logger.Warn("Auto-capture failed", "error", err)
 			} else {
 				logger.Info("Auto-captured memory", "category", category, "content", result.Content[:min(50, len(result.Content))])
+				capturedCount++
 			}
 		} else if a.memoryStore != nil {
 			if err := a.memoryStore.AddMemory(category, result.Content); err != nil {
 				logger.Warn("Auto-capture failed", "error", err)
 			} else {
 				logger.Info("Auto-captured memory", "category", category, "content", result.Content[:min(50, len(result.Content))])
+				capturedCount++
 			}
 		}
+	}
+
+	if capturedCount == 0 {
+		logger.Debug("Auto-capture completed: no memories captured")
 	}
 }
 

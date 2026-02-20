@@ -63,6 +63,11 @@ func ShouldCapture(content string) bool {
 		return false
 	}
 
+	// 排除问句（以问号结尾或包含"什么"等疑问词）
+	if isQuestion(content) {
+		return false
+	}
+
 	// 检查是否匹配任何触发规则
 	for _, pattern := range memoryTriggers {
 		if pattern.MatchString(content) {
@@ -71,6 +76,36 @@ func ShouldCapture(content string) bool {
 	}
 
 	return false
+}
+
+// isQuestion 检查内容是否是问句
+func isQuestion(content string) bool {
+	// 以问号结尾
+	if strings.HasSuffix(content, "？") || strings.HasSuffix(content, "?") {
+		return true
+	}
+	// 包含疑问词但不是陈述句
+	questionWords := []string{"什么", "为什么", "怎么", "如何", "哪里", "哪个", "几", "多少", "吗", "是否"}
+	statementMarkers := []string{"记住", "决定", "选择", "prefer", "like", "decided", "choice"}
+
+	hasQuestionWord := false
+	for _, word := range questionWords {
+		if strings.Contains(content, word) {
+			hasQuestionWord = true
+			break
+		}
+	}
+
+	hasStatementMarker := false
+	for _, marker := range statementMarkers {
+		if strings.Contains(content, marker) {
+			hasStatementMarker = true
+			break
+		}
+	}
+
+	// 如果有疑问词但没有陈述标记，认为是问句
+	return hasQuestionWord && !hasStatementMarker
 }
 
 // IsPromptInjection 检测是否为 Prompt 注入攻击
