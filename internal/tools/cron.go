@@ -61,6 +61,11 @@ Schedule formats:
 - at:<relative>     - 相对时间 (e.g., "at:in 5m", "at:+1h", "at:in 30m")
 - cron:<expr>       - Cron 表达式 (e.g., "cron:0 9 * * *" 表示每天9点)
 
+返回格式说明:
+- "Found N scheduled tasks:" 表示找到 N 个任务（N > 0 表示有任务）
+- "No scheduled tasks found." 表示确实没有任务
+- [✓] = 已启用, [✗] = 已禁用
+
 Examples:
 - 查看定时任务: {"action": "list"}
 - 5分钟后提醒: {"action": "add", "name": "提醒", "schedule": "at:in 5m", "message": "时间到了！"}
