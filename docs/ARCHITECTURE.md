@@ -1561,6 +1561,20 @@ type MCPManager struct {
 | Docker | ⏳ | 容器化部署 |
 | ClawHub 技能库 | ⏳ | 技能搜索安装 |
 
+### Phase 8: 自我进化机制（计划中）
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 核心框架 | ⏳ | types.go, config.go, orchestrator.go |
+| 问题扫描 | ⏳ | 日志分析、错误检测、自我反思 |
+| 代码生成 | ⏳ | LLM 生成修复方案 |
+| Git 管理 | ⏳ | 分支管理、提交、推送 |
+| 验证层 | ⏳ | 构建、测试、安全审计 |
+| 部署管理 | ⏳ | 编译、服务管理、健康检查 |
+| 回滚机制 | ⏳ | 快照、自动回滚 |
+| 审计日志 | ⏳ | 操作记录、追踪 |
+| 进化技能 | ⏳ | SKILL.md, SAFETY.md |
+
 ---
 
 ## 9. 技术选型
@@ -1689,7 +1703,395 @@ skills/builtin/moltbook/
 
 ---
 
-## 12. 参考资料
+## 12. 自我进化机制 (Self-Evolution)
+
+LingGuard 支持自我进化能力，可以自动发现问题、生成修复代码、提交版本更新并部署。这是 LingGuard 的核心特性之一。
+
+### 12.1 设计目标
+
+- **发现问题** - 自动检测系统错误、日志异常、自我反思
+- **自动修正代码** - 使用 LLM 生成修复代码
+- **上库（Git 提交）** - 自动 commit 和 push
+- **部署更新** - 重新编译并重启服务
+
+### 12.2 架构设计
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Evolution Orchestrator (编排器)                       │
+│  - 状态机管理    - 权限检查    - 速率限制                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+        ┌───────────────────────────┼───────────────────────────┐
+        ▼                           ▼                           ▼
+┌───────────────────┐    ┌───────────────────┐    ┌───────────────────┐
+│   Problem Scanner │    │   Code Generator  │    │   Git Manager     │
+│   (问题发现)       │    │   (代码生成)       │    │   (版本控制)       │
+│ - 日志分析         │    │ - 修复生成         │    │ - 分支管理         │
+│ - 错误检测         │    │ - Diff 生成        │    │ - 提交处理         │
+│ - 自我反思         │    │ - 测试生成         │    │ - 推送处理         │
+└───────────────────┘    └───────────────────┘    └───────────────────┘
+                                    │
+                                    ▼
+        ┌───────────────────────────────────────────────────────────┐
+        │                    Validation Layer                        │
+        │  构建检查  →  测试运行  →  安全审计                          │
+        └───────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+        ┌───────────────────────────────────────────────────────────┐
+        │                    Deployment Layer                        │
+        │  编译  →  停止服务  →  安装  →  启动服务  →  健康检查        │
+        └───────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+        ┌───────────────────────────────────────────────────────────┐
+        │                    Rollback Manager                        │
+        │  快照存储  →  版本历史  →  失败自动回滚                      │
+        └───────────────────────────────────────────────────────────┘
+```
+
+### 12.3 文件结构
+
+```
+internal/
+├── evolution/                    # 自我进化模块
+│   ├── types.go                  # 核心类型和接口
+│   ├── config.go                 # 进化配置
+│   ├── orchestrator.go           # 主编排器
+│   ├── scanner.go                # 问题扫描器
+│   ├── generator.go              # 代码生成器
+│   ├── validator.go              # 验证层
+│   ├── git_manager.go            # Git 操作
+│   ├── deployer.go               # 部署管理
+│   ├── rollback.go               # 回滚管理
+│   ├── audit.go                  # 审计日志
+│   └── tool.go                   # 进化工具（暴露给 Agent）
+├── tools/
+└── evolution.go                  # 进化工具包装器
+skills/builtin/
+└── self-evolution/               # 进化技能定义
+    ├── SKILL.md                  # 主技能文档
+    └── SAFETY.md                 # 安全指南
+```
+
+### 12.4 配置设计
+
+```json
+{
+  "evolution": {
+    "enabled": true,
+    "projectPath": "/path/to/lingguard",
+    "evolveBranch": "ai-evolution",
+    "mainBranch": "main",
+
+    "autoScanEnabled": true,
+    "scanInterval": 30,
+    "minSeverityToFix": "medium",
+
+    "requireApproval": true,
+    "allowedUsers": ["ou_xxx"],
+    "maxAutoFixesPerDay": 3,
+
+    "allowedFiles": ["internal/**/*.go", "pkg/**/*.go", "skills/**/*.md"],
+    "forbiddenFiles": ["**/*_test.go"],
+    "forbiddenPatterns": ["os.RemoveAll", "exec.Command.*rm -rf"],
+    "maxChangesPerFix": 5,
+
+    "runTests": true,
+    "testTimeout": 300,
+    "buildTimeout": 120,
+
+    "autoDeploy": false,
+    "autoPush": false,
+    "serviceName": "lingguard.service",
+    "healthCheckTimeout": 30,
+
+    "autoRollback": true,
+    "maxSnapshots": 10,
+    "rollbackOnFailure": true,
+
+    "auditLogPath": "~/.lingguard/evolution/audit.log"
+  }
+}
+```
+
+### 12.5 工作流程
+
+```
+1. 扫描问题
+   - 日志分析（错误模式匹配）
+   - 自我反思（LLM 分析代码库）
+   - 系统检查（服务状态、资源）
+
+2. 生成修复
+   - 收集上下文（相关文件、接口定义）
+   - LLM 生成修复方案
+   - 安全检查（禁止文件、禁止模式）
+
+3. 验证修改
+   - 构建检查 (go build)
+   - 测试运行 (go test)
+   - 安全审计 (go vet)
+
+4. 提交代码
+   - 切换到 ai-evolution 分支
+   - git add + commit
+   - 可选：git push
+
+5. 部署更新
+   - 创建快照（用于回滚）
+   - 构建新二进制
+   - 停止服务 → 安装 → 启动
+   - 健康检查
+
+6. 失败回滚
+   - Git reset 到快照版本
+   - 恢复备份二进制
+   - 重新部署
+```
+
+### 12.6 安全机制
+
+#### 12.6.1 文件访问控制
+
+| 类型 | 模式 | 说明 |
+|------|------|------|
+| 白名单 | `internal/**/*.go` | 允许修改的 Go 文件 |
+| 白名单 | `pkg/**/*.go` | 允许修改的 pkg 文件 |
+| 白名单 | `skills/**/*.md` | 允许修改的技能文档 |
+| 黑名单 | `**/*_test.go` | 禁止修改测试文件 |
+| 黑名单 | `**/config*.json` | 禁止修改配置文件 |
+
+#### 12.6.2 代码模式检测
+
+| 危险模式 | 说明 |
+|----------|------|
+| `os.RemoveAll` | 禁止递归删除 |
+| `exec.Command.*rm -rf` | 禁止危险 shell 命令 |
+| `os.Setenv.*API_KEY` | 禁止设置敏感环境变量 |
+| 硬编码密钥 | 禁止在代码中硬编码密钥 |
+
+#### 12.6.3 速率限制
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `maxAutoFixesPerDay` | 3 | 每日最大修复数 |
+| `scanInterval` | 30 | 扫描间隔（分钟） |
+| 冷却期 | 30 分钟 | 失败后的冷却时间 |
+
+#### 12.6.4 审批流程
+
+```go
+type ApprovalConfig struct {
+    RequireApproval bool     // 默认需要人工批准
+    AllowedUsers    []string // 白名单用户（可跳过审批）
+}
+```
+
+### 12.7 回滚机制
+
+#### 12.7.1 自动回滚触发条件
+
+| 触发条件 | 说明 |
+|----------|------|
+| 构建失败 | `go build` 返回错误 |
+| 测试失败 | `go test` 有失败用例 |
+| 健康检查失败 | 服务启动后无法响应 |
+| 服务崩溃 | 进程异常退出 |
+
+#### 12.7.2 快照管理
+
+```go
+type Snapshot struct {
+    ID          string    // 快照 ID
+    CreatedAt   time.Time // 创建时间
+    GitCommit   string    // Git commit hash
+    BinaryPath  string    // 备份二进制路径
+    ConfigPath  string    // 备份配置路径
+}
+
+// 保留策略
+const MaxSnapshots = 10  // 保留最近 10 个快照
+```
+
+### 12.8 审计日志
+
+所有进化操作都记录到审计日志：
+
+```
+~/.lingguard/evolution/audit.log
+```
+
+日志格式：
+```json
+{
+  "timestamp": "2026-02-20T10:30:00Z",
+  "action": "fix_applied",
+  "user": "ou_xxx",
+  "problem_id": "prob_001",
+  "files_changed": ["internal/agent/agent.go"],
+  "git_commit": "abc123",
+  "status": "success"
+}
+```
+
+### 12.9 进化工具 API
+
+进化工具暴露给 Agent，可通过对话触发：
+
+```
+# 扫描问题
+evolution_scan --type logs --severity high
+
+# 生成修复
+evolution_fix --problem_id prob_001
+
+# 查看状态
+evolution_status
+
+# 部署更新
+evolution_deploy --commit abc123
+
+# 回滚
+evolution_rollback --snapshot snap_001
+```
+
+### 12.10 技能文档
+
+进化技能文档位于 `skills/builtin/self-evolution/`：
+
+**SKILL.md** - 主要技能文档
+- 进化能力说明
+- 工具使用指南
+- 最佳实践
+
+**SAFETY.md** - 安全指南
+- 危险操作警告
+- 审批流程说明
+- 回滚操作指南
+
+### 12.11 核心接口
+
+```go
+// internal/evolution/types.go
+
+// Problem 表示发现的问题
+type Problem struct {
+    ID          string
+    Type        ProblemType    // error, warning, suggestion
+    Severity    Severity       // low, medium, high, critical
+    Source      string         // logs, reflection, system
+    Title       string
+    Description string
+    Location    *Location      // 文件位置
+    DetectedAt  time.Time
+}
+
+// Fix 表示生成的修复
+type Fix struct {
+    ID          string
+    ProblemID   string
+    Files       []FileChange
+    Description string
+    Approved    bool
+    AppliedAt   *time.Time
+}
+
+// FileChange 表示文件修改
+type FileChange struct {
+    Path        string
+    Action      FileAction    // create, modify, delete
+    OldContent  string
+    NewContent  string
+    Diff        string
+}
+
+// Orchestrator 主编排器接口
+type Orchestrator interface {
+    Scan(ctx context.Context, opts ScanOptions) ([]*Problem, error)
+    GenerateFix(ctx context.Context, problem *Problem) (*Fix, error)
+    ValidateFix(ctx context.Context, fix *Fix) error
+    ApplyFix(ctx context.Context, fix *Fix) error
+    Deploy(ctx context.Context, opts DeployOptions) error
+    Rollback(ctx context.Context, snapshotID string) error
+}
+```
+
+### 12.12 与其他模块的关系
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Agent Core                                │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
+│  │ 对话处理    │───▶│ 进化工具调用 │───▶│ 结果反馈    │         │
+│  └─────────────┘    └─────────────┘    └─────────────┘         │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Evolution Orchestrator                         │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
+│  │ Scanner     │    │ Generator   │    │ GitManager  │         │
+│  └─────────────┘    └─────────────┘    └─────────────┘         │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
+│  │ Validator   │    │ Deployer    │    │ Rollback    │         │
+│  └─────────────┘    └─────────────┘    └─────────────┘         │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                ┌───────────────┼───────────────┐
+                ▼               ▼               ▼
+        ┌──────────┐    ┌──────────┐    ┌──────────┐
+        │ Provider │    │ Git      │    │ Systemd  │
+        │ (LLM)    │    │ (版本库) │    │ (服务)   │
+        └──────────┘    └──────────┘    └──────────┘
+```
+
+### 12.13 配置文件修改
+
+需要在 `internal/config/config.go` 中添加 `EvolutionConfig`：
+
+```go
+// EvolutionConfig 自我进化配置
+type EvolutionConfig struct {
+    Enabled          bool     `json:"enabled"`
+    ProjectPath      string   `json:"projectPath"`
+    EvolveBranch     string   `json:"evolveBranch"`
+    MainBranch       string   `json:"mainBranch"`
+
+    AutoScanEnabled  bool     `json:"autoScanEnabled"`
+    ScanInterval     int      `json:"scanInterval"`
+    MinSeverityToFix string   `json:"minSeverityToFix"`
+
+    RequireApproval  bool     `json:"requireApproval"`
+    AllowedUsers     []string `json:"allowedUsers"`
+    MaxAutoFixesPerDay int    `json:"maxAutoFixesPerDay"`
+
+    AllowedFiles     []string `json:"allowedFiles"`
+    ForbiddenFiles   []string `json:"forbiddenFiles"`
+    ForbiddenPatterns []string `json:"forbiddenPatterns"`
+    MaxChangesPerFix int      `json:"maxChangesPerFix"`
+
+    RunTests         bool     `json:"runTests"`
+    TestTimeout      int      `json:"testTimeout"`
+    BuildTimeout     int      `json:"buildTimeout"`
+
+    AutoDeploy       bool     `json:"autoDeploy"`
+    AutoPush         bool     `json:"autoPush"`
+    ServiceName      string   `json:"serviceName"`
+    HealthCheckTimeout int    `json:"healthCheckTimeout"`
+
+    AutoRollback     bool     `json:"autoRollback"`
+    MaxSnapshots     int      `json:"maxSnapshots"`
+    RollbackOnFailure bool    `json:"rollbackOnFailure"`
+
+    AuditLogPath     string   `json:"auditLogPath"`
+}
+```
+
+---
+
+## 13. 参考资料
 
 - [nanobot](https://github.com/HKUDS/nanobot) - 参考架构设计
 - [OpenClaw](https://github.com/openclaw/openclaw) - 语音交互能力参考

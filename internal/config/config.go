@@ -142,6 +142,16 @@ type ToolsConfig struct {
 	AIGC *AIGCConfig `json:"aigc,omitempty"` // AI 内容生成配置
 	// TTS (Text-to-Speech) - 语音合成
 	TTS *TTSConfig `json:"tts,omitempty"` // 语音合成配置
+	// Moltbook - AI 社交网络
+	Moltbook *MoltbookConfig `json:"moltbook,omitempty"` // Moltbook 配置
+}
+
+// MoltbookConfig Moltbook AI 社交网络配置
+type MoltbookConfig struct {
+	Enabled   bool   `json:"enabled"`             // 是否启用
+	APIKey    string `json:"apiKey,omitempty"`    // API Key (可从注册获取并存储到本地)
+	AgentName string `json:"agentName,omitempty"` // Agent 名称，默认 LingGuard
+	CredPath  string `json:"credPath,omitempty"`  // 凭证文件路径，默认 ~/.lingguard/moltbook/credentials.json
 }
 
 // AIGCConfig AI 内容生成配置（图像/视频）

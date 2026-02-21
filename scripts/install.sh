@@ -37,9 +37,20 @@ mkdir -p "${CONFIG_DIR}/memory"
 mkdir -p "${CONFIG_DIR}/cron"
 mkdir -p "${CONFIG_DIR}/logs"
 mkdir -p "${CONFIG_DIR}/locks"
+mkdir -p "${CONFIG_DIR}/moltbook"
 # 清理旧锁文件
 rm -f "${CONFIG_DIR}/locks/"*.lock 2>/dev/null || true
 echo "  ✓ 已创建 ${CONFIG_DIR}"
+
+# 2.1 安装 Moltbook 凭证（如果存在）
+if [ -f "configs/moltbook/credentials.json" ]; then
+    if [ ! -f "${CONFIG_DIR}/moltbook/credentials.json" ]; then
+        cp configs/moltbook/credentials.json "${CONFIG_DIR}/moltbook/"
+        echo "  ✓ 已安装 Moltbook 凭证到 ${CONFIG_DIR}/moltbook/credentials.json"
+    else
+        echo "  ! ${CONFIG_DIR}/moltbook/credentials.json 已存在，保留现有凭证"
+    fi
+fi
 
 # 3. 安装配置文件（如果不存在）
 echo "[3/5] 安装配置文件..."

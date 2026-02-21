@@ -290,6 +290,15 @@ func (b *AgentBuilder) Build() (*agent.Agent, error) {
 		}
 	}
 
+	// 注册 Moltbook AI 社交网络工具
+	if b.cfg.Tools.Moltbook != nil && b.cfg.Tools.Moltbook.Enabled {
+		ag.RegisterTool(tools.NewMoltbookTool(
+			b.cfg.Tools.Moltbook.APIKey,
+			b.cfg.Tools.Moltbook.AgentName,
+		))
+		logger.Info("Moltbook tool enabled", "agentName", b.cfg.Tools.Moltbook.AgentName)
+	}
+
 	// 注册可选工具
 	if b.enableCron && b.cronService != nil {
 		ag.RegisterCronTool(b.cronService)

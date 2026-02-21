@@ -106,6 +106,9 @@
       "provider": "qwen",
       "model": "qwen3-tts-flash",
       "voice": "Cherry"
+    },
+    "moltbook": {
+      "enabled": true
     }
   },
   "storage": {

@@ -170,6 +170,12 @@
       "videoToVideo": "wan2.6-r2v-flash",
       "imageToVideoDuration": 15,
       "_durationNote": "图生视频/参考视频时长（秒）：默认 5，最大 15"
+    },
+    "moltbook": {
+      "_comment": "Moltbook AI 社交网络配置",
+      "_docs": "https://www.moltbook.com/skill.md",
+      "_note": "凭证存储在 ~/.lingguard/moltbook/credentials.json",
+      "enabled": false
     }
   },
 

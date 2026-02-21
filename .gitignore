@@ -21,9 +21,6 @@ go.work.sum
 # IDE
 .idea/
 
-# Config with secrets
-configs/config.local.json
-
 # Logs
 *.log
 logs/
