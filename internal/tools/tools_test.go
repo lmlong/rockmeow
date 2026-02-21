@@ -315,3 +315,70 @@ func TestWorkspaceTool(t *testing.T) {
 	}
 	t.Logf("cd error (expected): %v", err)
 }
+
+func TestFileToolSymlinkProtection(t *testing.T) {
+	// 创建临时目录
+	tmpDir, err := os.MkdirTemp("", "lingguard-symlink-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// 创建工作区外的敏感文件
+	outsideDir, err := os.MkdirTemp("", "lingguard-outside-*")
+	if err != nil {
+		t.Fatalf("Failed to create outside dir: %v", err)
+	}
+	defer os.RemoveAll(outsideDir)
+
+	sensitiveFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(sensitiveFile, []byte("SECRET DATA"), 0644); err != nil {
+		t.Fatalf("Failed to create sensitive file: %v", err)
+	}
+
+	// 在工作区内创建指向外部文件的符号链接
+	symlinkPath := filepath.Join(tmpDir, "link_to_secret")
+	if err := os.Symlink(sensitiveFile, symlinkPath); err != nil {
+		t.Fatalf("Failed to create symlink: %v", err)
+	}
+
+	// 创建启用沙箱的文件工具
+	mgr := NewWorkspaceManager(tmpDir, "")
+	tool := NewFileTool(mgr, true) // sandboxed = true
+	ctx := context.Background()
+
+	// 尝试通过符号链接读取外部文件（应该失败）
+	params := json.RawMessage(`{"operation":"read","path":"` + symlinkPath + `"}`)
+	_, err = tool.Execute(ctx, params)
+	if err == nil {
+		t.Error("Reading through symlink to outside workspace should be blocked")
+	} else {
+		t.Logf("Symlink protection worked: %v", err)
+	}
+
+	// 尝试通过符号链接写入外部文件（应该失败）
+	writeParams := json.RawMessage(`{"operation":"write","path":"` + symlinkPath + `","content":"hacked"}`)
+	_, err = tool.Execute(ctx, writeParams)
+	if err == nil {
+		t.Error("Writing through symlink to outside workspace should be blocked")
+	} else {
+		t.Logf("Symlink write protection worked: %v", err)
+	}
+
+	// 工作区内的正常文件应该可以访问
+	normalFile := filepath.Join(tmpDir, "normal.txt")
+	normalParams := json.RawMessage(`{"operation":"write","path":"` + normalFile + `","content":"hello"}`)
+	_, err = tool.Execute(ctx, normalParams)
+	if err != nil {
+		t.Errorf("Writing to normal file in workspace should succeed: %v", err)
+	}
+
+	// 路径遍历攻击（应该失败）
+	traversalParams := json.RawMessage(`{"operation":"read","path":"` + filepath.Join(tmpDir, "..", "outside", "secret.txt") + `"}`)
+	_, err = tool.Execute(ctx, traversalParams)
+	if err == nil {
+		t.Error("Path traversal attack should be blocked")
+	} else {
+		t.Logf("Path traversal protection worked: %v", err)
+	}
+}

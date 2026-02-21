@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -96,19 +97,58 @@ func (t *ShellTool) Execute(ctx context.Context, params json.RawMessage) (string
 
 func (t *ShellTool) IsDangerous() bool { return true }
 
+// 危险命令黑名单模式（参考 nanobot）
+var dangerousPatterns = []string{
+	// 文件系统破坏
+	`\brm\s+-[rf]{1,2}\b`,            // rm -r, rm -rf, rm -fr
+	`\brm\s+-(?:[a-z])*r(?:[a-z])*f`, // rm -Rf, rm -fr 等变体
+	`\bdel\s+/[fq]\b`,                // del /f, del /q (Windows)
+	`\brmdir\s+/s\b`,                 // rmdir /s (Windows)
+
+	// 磁盘操作
+	`\b(?:mkfs|diskpart)\b`, // 磁盘格式化/分区
+	`\bdd\s+if=`,            // dd 磁盘写入
+	`>\s*/dev/sd`,           // 写入磁盘设备
+	`>\s*/dev/hd`,           // 写入 IDE 磁盘
+
+	// 系统控制
+	`\b(?:shutdown|reboot|poweroff|halt|init\s+[06])\b`, // 系统电源控制
+
+	// Fork 炸弹
+	`:\(\)\s*\{.*\};\s*:`, // :(){ :|:& };:
+
+	// 权限提升
+	`\b(?:sudo|su|doas)\s+`, // 权限提升（可选：根据需求启用）
+
+	// 网络危险操作
+	`\b(?:iptables|ufw|firewall-cmd)\b`, // 防火墙修改
+
+	// 系统关键目录
+	`/dev/(?:null|zero|random|urandom)`, // 设备文件
+}
+
+var denyRegexps []*regexp.Regexp
+
+func init() {
+	// 预编译正则表达式
+	for _, pattern := range dangerousPatterns {
+		denyRegexps = append(denyRegexps, regexp.MustCompile("(?i)"+pattern))
+	}
+}
+
 func (t *ShellTool) validateCommand(cmd string) error {
-	// 危险命令黑名单
-	dangerous := []string{
-		"rm -rf /",
-		"mkfs",
-		"dd if=",
-		":(){ :|:& };:",
+	// 1. 检查危险命令黑名单
+	for _, re := range denyRegexps {
+		if re.MatchString(cmd) {
+			return fmt.Errorf("dangerous command detected: %s", re.String())
+		}
 	}
 
-	lowerCmd := strings.ToLower(cmd)
-	for _, d := range dangerous {
-		if strings.Contains(lowerCmd, d) {
-			return fmt.Errorf("dangerous command detected: %s", d)
+	// 2. 如果启用了沙箱，检查路径遍历
+	if t.sandboxed && t.workspaceMgr != nil {
+		if strings.Contains(cmd, "../") || strings.Contains(cmd, "..\\") {
+			// 检测到路径遍历尝试
+			return fmt.Errorf("path traversal detected in command")
 		}
 	}
 

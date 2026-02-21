@@ -96,17 +96,71 @@ func (t *FileTool) Execute(ctx context.Context, params json.RawMessage) (string,
 func (t *FileTool) IsDangerous() bool { return true }
 
 func (t *FileTool) validatePath(path string) error {
+	// 1. 获取绝对路径
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid path: %w", err)
 	}
 
-	absWorkspace, _ := filepath.Abs(t.workspaceMgr.Get())
-	if !strings.HasPrefix(absPath, absWorkspace) {
-		return fmt.Errorf("path outside workspace: %s", path)
+	// 2. 获取工作区绝对路径
+	absWorkspace, err := filepath.Abs(t.workspaceMgr.Get())
+	if err != nil {
+		return fmt.Errorf("failed to resolve workspace: %w", err)
+	}
+
+	// 3. 解析符号链接，防止通过符号链接逃逸
+	// EvalSymlinks 会将路径中的符号链接解析为真实路径
+	evalPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// 如果路径不存在（新建文件），检查父目录
+		evalPath, err = t.resolveParentPath(absPath)
+		if err != nil {
+			return fmt.Errorf("path validation failed: %w", err)
+		}
+	}
+
+	// 4. 同时解析工作区的符号链接
+	evalWorkspace, err := filepath.EvalSymlinks(absWorkspace)
+	if err != nil {
+		evalWorkspace = absWorkspace // 工作区不存在时使用原路径
+	}
+
+	// 5. 使用相对路径检查，比前缀匹配更安全
+	// 如果相对路径以 ".." 开头，说明在工作区之外
+	rel, err := filepath.Rel(evalWorkspace, evalPath)
+	if err != nil {
+		return fmt.Errorf("failed to check path relation: %w", err)
+	}
+
+	// 检查是否尝试逃逸工作区
+	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return fmt.Errorf("path outside workspace: %s (resolved to %s)", path, evalPath)
 	}
 
 	return nil
+}
+
+// resolveParentPath 解析父目录路径（用于新建文件场景）
+func (t *FileTool) resolveParentPath(path string) (string, error) {
+	dir := filepath.Dir(path)
+	for {
+		// 从最近存在的父目录开始解析
+		evalDir, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			// 找到存在的目录，拼接剩余路径
+			remaining := strings.TrimPrefix(path, dir)
+			if remaining != "" {
+				return filepath.Join(evalDir, remaining), nil
+			}
+			return evalDir, nil
+		}
+		// 继续向上查找
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("cannot resolve path: %s", path)
+		}
+		dir = parent
+	}
 }
 
 func (t *FileTool) readFile(path string) (string, error) {
