@@ -429,18 +429,22 @@ func (t *MoltbookTool) createPost(ctx context.Context, title, content, submolt s
 		"submolt_name": submolt,
 	}
 
+	// 响应结构 - 根据实际 API 格式
 	var resp struct {
-		Success            bool   `json:"success"`
-		Message            string `json:"message"`
-		PostID             string `json:"post_id"`
-		Error              string `json:"error"`
-		VerificationStatus string `json:"verificationStatus"`
-		Verification       *struct {
-			VerificationCode string `json:"verification_code"`
-			ChallengeText    string `json:"challenge_text"`
-			ExpiresAt        string `json:"expires_at"`
-			Instructions     string `json:"instructions"`
-		} `json:"verification"`
+		Success              bool   `json:"success"`
+		Message              string `json:"message"`
+		Error                string `json:"error"`
+		VerificationRequired bool   `json:"verification_required"`
+		Post                 *struct {
+			ID                 string `json:"id"`
+			VerificationStatus string `json:"verification_status"`
+			Verification       *struct {
+				VerificationCode string `json:"verification_code"`
+				ChallengeText    string `json:"challenge_text"`
+				ExpiresAt        string `json:"expires_at"`
+				Instructions     string `json:"instructions"`
+			} `json:"verification"`
+		} `json:"post"`
 	}
 
 	if err := t.doRequest(ctx, "POST", "/posts", reqBody, &resp, true); err != nil {
@@ -452,11 +456,14 @@ func (t *MoltbookTool) createPost(ctx context.Context, title, content, submolt s
 	}
 
 	// 如果需要验证，自动处理
-	if resp.VerificationStatus == "pending" && resp.Verification != nil {
-		logger.Info("Moltbook post needs verification", "challenge", resp.Verification.ChallengeText)
+	if resp.VerificationRequired && resp.Post != nil && resp.Post.Verification != nil {
+		challenge := resp.Post.Verification.ChallengeText
+		logger.Info("Moltbook post needs verification", "challenge", challenge)
 
 		// 解析并计算数学问题
-		answer := solveMoltbookChallenge(resp.Verification.ChallengeText)
+		answer := solveMoltbookChallenge(challenge)
+		logger.Info("Moltbook challenge solved", "answer", answer)
+
 		if answer != "" {
 			// 提交验证
 			verifyResp := struct {
@@ -465,7 +472,7 @@ func (t *MoltbookTool) createPost(ctx context.Context, title, content, submolt s
 				Error   string `json:"error"`
 			}{}
 			verifyBody := map[string]string{
-				"verification_code": resp.Verification.VerificationCode,
+				"verification_code": resp.Post.Verification.VerificationCode,
 				"answer":            answer,
 			}
 			if err := t.doRequest(ctx, "POST", "/verify", verifyBody, &verifyResp, true); err != nil {
@@ -475,11 +482,18 @@ func (t *MoltbookTool) createPost(ctx context.Context, title, content, submolt s
 				return fmt.Sprintf("发帖成功但验证失败: %s\n帖子可能不会显示", verifyResp.Message), nil
 			}
 			logger.Info("Moltbook verification successful", "answer", answer)
+		} else {
+			return "发帖成功但无法解析验证挑战，帖子可能不会显示", nil
 		}
 	}
 
+	postID := ""
+	if resp.Post != nil {
+		postID = resp.Post.ID
+	}
+
 	return fmt.Sprintf("发帖成功！\nPost ID: %s\n标题: %s\n社区: %s\n\n注意: 每个帖子间隔至少 30 分钟",
-		resp.PostID, title, submolt), nil
+		postID, title, submolt), nil
 }
 
 // createComment 发表评论
@@ -831,19 +845,34 @@ func loadMoltbookCredentials(path string) (*MoltbookCredentials, error) {
 }
 
 // solveMoltbookChallenge 解析 Moltbook 验证数学问题
-// 示例: "A lobster's claw exerts thirty two newtons at lever arm of two meters. What's torque?"
-// 返回: "64.00"
+// 挑战格式：混淆的数学问题，有交替大小写、散布符号、破碎单词
+// 示例: "A] lO^bSt-Er S[wImS aT/ tW]eNn-Tyy mE^tE[rS aNd] SlO/wS bY^ fI[vE"
+// 解析: A lobster swims at twenty meters and slows by five -> 20 - 5 = 15.00
 func solveMoltbookChallenge(challenge string) string {
-	// 清理挑战文本中的干扰字符
-	cleaned := cleanChallengeText(challenge)
+	// 步骤1: 清理混淆 - 移除所有非字母字符，转小写
+	cleaned := cleanObfuscatedText(challenge)
 	logger.Debug("Moltbook challenge cleaned", "original", challenge, "cleaned", cleaned)
 
-	// 尝试解析简单的数学表达式
-	// 查找数字和可能的运算
-	numbers := extractNumbers(cleaned)
-	if len(numbers) >= 2 {
-		// 尝试乘法 (force * distance = torque 类型)
-		result := float64(numbers[0]) * float64(numbers[1])
+	// 步骤2: 提取数字单词和操作符
+	numbers, operation := extractMathProblem(cleaned)
+
+	if len(numbers) >= 2 && operation != "" {
+		var result float64
+		switch operation {
+		case "+", "plus", "add", "and":
+			result = float64(numbers[0]) + float64(numbers[1])
+		case "-", "minus", "subtract", "slows", "reduces", "decreases":
+			result = float64(numbers[0]) - float64(numbers[1])
+		case "*", "times", "multiplied", "multiply", "exerts", "at":
+			result = float64(numbers[0]) * float64(numbers[1])
+		case "/", "divided", "divide", "by":
+			if numbers[1] != 0 {
+				result = float64(numbers[0]) / float64(numbers[1])
+			}
+		default:
+			// 默认尝试乘法（物理问题通常是 F * d = torque）
+			result = float64(numbers[0]) * float64(numbers[1])
+		}
 		return fmt.Sprintf("%.2f", result)
 	}
 
@@ -851,27 +880,25 @@ func solveMoltbookChallenge(challenge string) string {
 	return ""
 }
 
-// cleanChallengeText 清理挑战文本
-func cleanChallengeText(text string) string {
-	// 移除干扰字符
-	replacer := strings.NewReplacer(
-		"]", " ", "[", " ", "^", " ", "~", " ",
-		"{", " ", "}", " ", "\\", " ", "/", " ",
-		"|", " ", "@", " ", "#", " ", "$", " ",
-		"%", " ", "*", " ", "(", " ", ")", " ",
-		"?", "", "!", "", ".", " ", ",", " ",
-	)
-	cleaned := replacer.Replace(text)
-	// 统一空格
-	cleaned = strings.Join(strings.Fields(cleaned), " ")
-	return strings.ToLower(cleaned)
+// cleanObfuscatedText 清理混淆的挑战文本
+func cleanObfuscatedText(text string) string {
+	// 移除所有非字母字符，保留空格
+	var result strings.Builder
+	for _, ch := range text {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == ' ' {
+			result.WriteRune(ch)
+		}
+	}
+	// 转小写并规范化空格
+	cleaned := strings.ToLower(result.String())
+	return strings.Join(strings.Fields(cleaned), " ")
 }
 
-// extractNumbers 从文本中提取数字
-func extractNumbers(text string) []int {
-	var numbers []int
+// extractMathProblem 从清理后的文本中提取数学问题
+func extractMathProblem(text string) ([]int, string) {
 	words := strings.Fields(text)
 
+	// 数字单词映射
 	numberWords := map[string]int{
 		"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
 		"five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
@@ -882,13 +909,36 @@ func extractNumbers(text string) []int {
 		"eighty": 80, "ninety": 90, "hundred": 100,
 	}
 
-	for i, word := range words {
+	// 操作符关键词
+	operationWords := map[string]string{
+		"plus": "+", "add": "+", "and": "+",
+		"minus": "-", "subtract": "-", "slows": "-", "reduces": "-", "decreases": "-",
+		"times": "*", "multiplied": "*", "multiply": "*", "exerts": "*", "at": "*",
+		"divided": "/", "divide": "/", "by": "/",
+	}
+
+	var numbers []int
+	var operation string
+
+	// 合并连续的数字单词（如 "twenty two" -> 22）
+	for i := 0; i < len(words); i++ {
+		word := words[i]
+
+		// 检查是否是操作符
+		if op, ok := operationWords[word]; ok {
+			if operation == "" {
+				operation = op
+			}
+			continue
+		}
+
 		// 检查是否是数字单词
 		if n, ok := numberWords[word]; ok {
-			// 检查下一个词是否也是数字（如 "thirty two"）
+			// 检查下一个词是否也是数字（十位 + 个位）
 			if i+1 < len(words) {
-				if nextN, ok := numberWords[words[i+1]]; ok && nextN < 10 {
+				if nextN, ok := numberWords[words[i+1]]; ok && nextN < 10 && n%10 == 0 {
 					numbers = append(numbers, n+nextN)
+					i++ // 跳过下一个词
 					continue
 				}
 			}
@@ -896,7 +946,20 @@ func extractNumbers(text string) []int {
 		}
 	}
 
-	return numbers
+	// 如果没有找到明确的操作符，尝试从上下文推断
+	if operation == "" && len(numbers) >= 2 {
+		// 检查是否包含特定的操作词
+		textLower := strings.ToLower(text)
+		if strings.Contains(textLower, "torque") || strings.Contains(textLower, "force") || strings.Contains(textLower, "lever") {
+			operation = "*" // 物理问题通常是 F * d
+		} else if strings.Contains(textLower, "slows") || strings.Contains(textLower, "reduces") {
+			operation = "-"
+		} else if strings.Contains(textLower, "total") || strings.Contains(textLower, "sum") {
+			operation = "+"
+		}
+	}
+
+	return numbers, operation
 }
 
 // IsDangerous 返回是否为危险操作
