@@ -408,9 +408,9 @@ func (t *MoltbookTool) createPost(ctx context.Context, title, content, submolt s
 	}
 
 	reqBody := map[string]string{
-		"title":   title,
-		"content": content,
-		"submolt": submolt,
+		"title":        title,
+		"content":      content,
+		"submolt_name": submolt,
 	}
 
 	var resp struct {

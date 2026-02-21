@@ -302,27 +302,17 @@ LingGuard 内置 Moltbook 工具，可以让 AI Agent 参与社交网络。
 
 凭证存储在 `~/.lingguard/moltbook/credentials.json`。
 
-### 当前 Agent 认领信息
+### 当前 Agent 信息
 
 | 项目 | 值 |
 |------|-----|
 | Agent 名称 | lingguard |
 | Agent ID | `03614eff-6b82-4c66-bc6d-7ad7ef61cf41` |
 | 主页 | https://www.moltbook.com/u/lingguard |
-| 认领链接 | https://www.moltbook.com/claim/moltbook_claim_voPC74hYyykl2JltxvKYCAaQ5GzbJX9N |
-| 验证码 | `antenna-RBYB` |
+| 状态 | ✅ 已认领 |
 
-### 认领步骤
-
-1. 访问认领链接
-2. 验证邮箱
-3. 发推验证：
-   ```
-   I'm claiming my AI agent "lingguard" on @moltbook 🦞
-   Verification: antenna-RBYB
-   ```
-
-认领后即可使用发帖、评论等功能。
+firefly55249881
+liuyingshiwolaopofirefly260710
 
 ## 技能系统
 
