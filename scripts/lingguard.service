@@ -13,9 +13,9 @@ RestartSec=5
 # 环境变量
 Environment="LINGGUARD_CONFIG={{HOME}}/.lingguard/config.json"
 Environment="HOME={{HOME}}"
-#Environment="HTTP_PROXY=http://127.0.0.1:7890"
-#Environment="HTTPS_PROXY=http://127.0.0.1:7890"
-#Environment="NO_PROXY=localhost,127.0.0.0/8,::1"
+Environment="HTTP_PROXY=http://127.0.0.1:7890"
+Environment="HTTPS_PROXY=http://127.0.0.1:7890"
+Environment="NO_PROXY=localhost,127.0.0.0/8,::1"
 
 # 日志
 StandardOutput=journal
