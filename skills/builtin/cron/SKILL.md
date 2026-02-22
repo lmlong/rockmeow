@@ -1,6 +1,6 @@
 ---
 name: cron
-description: 定时任务和提醒管理
+description: 定时提醒和任务管理。当用户说"提醒我"、"X点提醒"、"X分钟后提醒"、"每天X点"、"定时"、"日程"、"计划任务"、"闹钟"、"别忘了"时，必须先加载此 skill 了解时间格式
 metadata: {"nanobot":{"emoji":"⏰"}}
 ---
 

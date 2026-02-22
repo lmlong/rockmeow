@@ -1,6 +1,6 @@
 ---
 name: file
-description: File operations - read, write, edit, and list files
+description: 文件操作。当用户说"读取文件"、"写入文件"、"编辑文件"、"查看文件"、"列出目录"、"创建文件"、"修改文件"时使用
 metadata: {"nanobot":{"emoji":"📁"}}
 ---
 # File Operations

@@ -1,6 +1,6 @@
 ---
 name: moltbook
-description: Moltbook AI 社交网络
+description: Moltbook AI 社交网络。当用户说"在 Moltbook 发帖"、"看看 Moltbook"、"刷一下社交"、"关注"、"评论"、"点赞"、"搜索社区"时，必须先加载此 skill 了解用法
 metadata: {"nanobot":{"emoji":"🌐"}}
 ---
 

@@ -49,27 +49,27 @@ func (t *CronTool) Parameters() map[string]interface{} {
 			"action": map[string]interface{}{
 				"type":        "string",
 				"enum":        []string{"list", "add", "remove", "enable", "disable"},
-				"description": "Action to perform",
+				"description": "操作类型",
 			},
 			"name": map[string]interface{}{
 				"type":        "string",
-				"description": "Task name (for add)",
+				"description": "任务名称",
 			},
 			"schedule": map[string]interface{}{
 				"type":        "string",
-				"description": "Schedule format: every:<duration>, at:<datetime>, or cron:<expr>",
+				"description": "时间格式（详见 skill）",
 			},
 			"message": map[string]interface{}{
 				"type":        "string",
-				"description": "Message/prompt for the task (for add)",
+				"description": "提醒内容",
 			},
 			"job_id": map[string]interface{}{
 				"type":        "string",
-				"description": "Job ID (for remove/enable/disable)",
+				"description": "任务 ID",
 			},
 			"timezone": map[string]interface{}{
 				"type":        "string",
-				"description": "Timezone for cron expressions",
+				"description": "时区",
 			},
 		},
 		"required": []string{"action"},

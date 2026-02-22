@@ -1,6 +1,6 @@
 ---
 name: tts
-description: 文字转语音（通义千问 TTS）
+description: 文字转语音 TTS。当用户说"朗读"、"读出来"、"转成语音"、"用语音说"、"播放这段话"、"念给我听"、"读这段文字"、"配音"时，必须先加载此 skill 了解可用音色
 metadata: {"nanobot":{"emoji":"🔊"}}
 ---
 
