@@ -28,15 +28,12 @@
       "apiKey": "sk-xxx"
     },
 
-    "qwen": {
-      "_comment": "阿里云通义千问",
-      "apiKey": "sk-xxx"
-    },
-
     "glm": {
       "_comment": "智谱 GLM - 智谱 AI",
       "apiKey": "xxx.xxx",
-      "apiBase": "https://open.bigmodel.cn/api/anthropic"
+      "apiBase": "https://open.bigmodel.cn/api/anthropic",
+      "model": "glm-5",
+      "timeout": 120
     },
 
     "moonshot": {
@@ -57,7 +54,14 @@
     "minimax": {
       "_comment": "MiniMax AI",
       "apiKey": "xxx",
-      "apiBase": "https://api.minimaxi.com/anthropic"
+      "apiBase": "https://api.minimaxi.com/anthropic",
+      "model": "MiniMax-M2.5"
+    },
+
+    "qwen": {
+      "_comment": "阿里云通义千问",
+      "apiKey": "sk-xxx",
+      "model": "qwen3.5-plus"
     },
 
     "vllm": {
@@ -71,8 +75,9 @@
   "agents": {
     "_comment": "==================== Agent 代理配置 ====================",
     "workspace": "~/.lingguard/workspace",
-    "provider": "openrouter",
-    "maxToolIterations": 20,
+    "provider": "minimax",
+    "multimodalProvider": "qwen",
+    "maxToolIterations": 50,
     "memoryWindow": 50,
     "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。",
     "memory": {
@@ -87,7 +92,7 @@
       "captureMaxChars": 500,
       "vector": {
         "_comment": "向量检索配置（可选，需要配置 Embedding API）",
-        "enabled": false,
+        "enabled": true,
         "embedding": {
           "provider": "qwen",
           "model": "text-embedding-v4",
@@ -97,16 +102,11 @@
           "vectorWeight": 0.7,
           "bm25Weight": 0.3,
           "defaultTopK": 10,
-          "minScore": 0.5,
           "rerank": {
-            "enabled": false,
+            "enabled": true,
             "provider": "qwen",
             "model": "qwen3-vl-rerank"
           }
-        },
-        "database": {
-          "path": "~/.lingguard/memory/vectors.db",
-          "dimension": 1024
         }
       }
     }
@@ -117,12 +117,9 @@
 
     "feishu": {
       "_comment": "飞书机器人 - WebSocket 长连接，无需公网 IP",
-      "enabled": false,
+      "enabled": true,
       "appId": "cli_xxx",
-      "appSecret": "xxx",
-      "encryptKey": "",
-      "verificationToken": "",
-      "allowFrom": []
+      "appSecret": "xxx"
     },
 
     "qq": {
@@ -176,6 +173,13 @@
       "_docs": "https://www.moltbook.com/skill.md",
       "_note": "凭证存储在 ~/.lingguard/moltbook/credentials.json",
       "enabled": false
+    },
+    "clawhub": {
+      "_comment": "ClawHub 技能仓库配置",
+      "_docs": "https://clawhub.ai",
+      "_note": "apiToken 用于自动登录，从 https://clawhub.ai 获取",
+      "enabled": true,
+      "apiToken": "clh_xxxxxxxxxxxx"
     }
   },
 

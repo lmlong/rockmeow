@@ -1,8 +1,5 @@
 {
   "providers": {
-    "deepseek": {
-      "apiKey": "sk-xxx"
-    },
     "glm": {
       "apiKey": "aa1d0dc2e27c4eaa80a9772536d2031c.BGqk7a4NgHcCPxXR",
       "apiBase": "https://open.bigmodel.cn/api/anthropic",
@@ -14,21 +11,9 @@
       "apiBase": "https://api.minimaxi.com/anthropic",
       "model": "MiniMax-M2.5"
     },
-    "moonshot": {
-      "apiKey": "sk-xxx"
-    },
     "qwen": {
       "apiKey": "sk-791d6c7cc3094af99290577b709b47e6",
       "model": "qwen3.5-plus"
-    },
-    "openai": {
-      "apiKey": "sk-xxx"
-    },
-    "anthropic": {
-      "apiKey": "sk-ant-xxx"
-    },
-    "openrouter": {
-      "apiKey": "sk-or-xxx"
     }
   },
   "agents": {

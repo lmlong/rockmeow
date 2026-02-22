@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lingguard</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{BIN}}</string>
+        <string>gateway</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{HOME}}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LINGGUARD_CONFIG</key>
+        <string>{{HOME}}/.lingguard/config.json</string>
+        <key>HOME</key>
+        <string>{{HOME}}</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>{{HOME}}/.lingguard/logs/lingguard.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{HOME}}/.lingguard/logs/lingguard.log</string>
+
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65535</integer>
+    </dict>
+</dict>
+</plist>

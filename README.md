@@ -320,12 +320,43 @@ liuyingshiwolaopofirefly260710
 
 | 技能 | 描述 |
 |------|------|
-| `weather` | 天气查询 (心知天气) |
-| `git-workflow` | Git 工作流自动化 |
+| `clawhub` | 🦞 ClawHub 技能仓库，搜索/安装/更新技能 |
+| `weather` | 🌤️ 天气查询 (心知天气) |
+| `git-workflow` | 🌿 Git 工作流自动化 |
 | `code-review` | 代码审查指南 |
+| `coding` | 💻 编码任务（使用 opencode） |
 | `file` | 文件操作指南 |
 | `system` | 系统操作指南 |
-| `moltbook` | AI Agent 社交网络 |
+
+### ClawHub 技能仓库
+
+从 [ClawHub](https://clawhub.ai) 搜索和安装技能：
+
+```bash
+# 搜索技能
+npx --yes clawhub@latest search "web scraping" --limit 5
+
+# 安装技能
+npx --yes clawhub@latest install <slug> --workdir "$HOME/.lingguard/workspace"
+
+# 更新所有已安装技能
+npx --yes clawhub@latest update --all --workdir "$HOME/.lingguard/workspace"
+
+# 列出已安装技能
+npx --yes clawhub@latest list --workdir "$HOME/.lingguard/workspace"
+```
+
+ClawHub 配置（可选，用于自动登录）：
+```json
+{
+  "tools": {
+    "clawhub": {
+      "enabled": true,
+      "apiToken": "clh_xxxx"
+    }
+  }
+}
+```
 
 ### 技能格式
 
@@ -512,45 +543,114 @@ GOOS=windows GOARCH=amd64 go build -o lingguard.exe ./cmd/lingguard
 
 ## 部署方式
 
-### 方式一：Make 安装（推荐）
+### Linux 部署
 
 ```bash
-# 完整安装（二进制 + 配置 + systemd 服务）
+# 方式一：从源码安装
 make install
 
-# 仅安装二进制
-make install-bin
+# 方式二：从发布包安装
+tar -xzf lingguard-xxx-linux-amd64.tar.gz
+cd lingguard-xxx
+./scripts/install.sh
 
-# 安装到指定目录
-make install PREFIX=/usr/local
-
-# 启用系统级服务
-make install SERVICE=system
-
-# 启用用户级服务（默认）
-make install SERVICE=user
-```
-
-安装完成后：
-- 二进制文件: `~/.local/bin/lingguard` 或 `$PREFIX/bin/lingguard`
-- 配置目录: `~/.lingguard/`
-- systemd 服务: `lingguard.service`
-
-```bash
-# 启动服务
+# 启动服务 (systemd)
 systemctl --user start lingguard
-
-# 开机自启
-systemctl --user enable lingguard
-
-# 查看状态
-systemctl --user status lingguard
+systemctl --user enable lingguard  # 开机自启
 
 # 查看日志
 journalctl --user -u lingguard -f
 ```
 
-### 方式二：打包部署
+### macOS 部署
+
+```bash
+# 1. 下载发布包
+# Apple Silicon (M1/M2/M3): lingguard-xxx-darwin-arm64.tar.gz
+# Intel Mac: lingguard-xxx-darwin-amd64.tar.gz
+
+# 2. 解压并安装
+tar -xzf lingguard-xxx-darwin-arm64.tar.gz
+cd lingguard-xxx
+./scripts/install.sh
+
+# 3. 允许运行（macOS 安全限制）
+xattr -cr ~/.local/bin/lingguard
+
+# 4. 启动服务 (launchd)
+launchctl load ~/Library/LaunchAgents/com.lingguard.plist
+
+# 5. 查看日志
+tail -f ~/.lingguard/logs/lingguard.log
+```
+
+**macOS 服务管理：**
+```bash
+# 停止服务
+launchctl unload ~/Library/LaunchAgents/com.lingguard.plist
+
+# 启动服务
+launchctl load ~/Library/LaunchAgents/com.lingguard.plist
+
+# 查看状态
+launchctl list | grep lingguard
+```
+
+### Windows 部署
+
+```powershell
+# 解压
+Expand-Archive lingguard-xxx-windows-amd64.zip
+
+# 运行
+.\lingguard.exe gateway
+```
+
+### 手动安装
+
+```bash
+# 复制二进制
+mkdir -p ~/.local/bin
+cp lingguard ~/.local/bin/
+
+# macOS 需要移除隔离属性
+xattr -cr ~/.local/bin/lingguard
+
+# 创建配置目录
+mkdir -p ~/.lingguard/{workspace,memory,logs,cron}
+
+# 创建配置文件
+cp configs/config.json ~/.lingguard/
+```
+
+### 打包发布
+
+```bash
+# 打包 Linux + macOS
+make package
+
+# 打包所有平台
+make package-all
+
+# 单独打包
+make package-linux-amd64
+make package-darwin-arm64
+make package-windows-amd64
+```
+
+发布包内容：
+```
+lingguard-xxx-darwin-arm64/
+├── lingguard              # 二进制
+├── scripts/
+│   ├── install.sh         # 安装脚本
+│   ├── uninstall.sh       # 卸载脚本
+│   ├── linguard.service   # Linux systemd
+│   └── com.lingguard.plist # macOS launchd
+├── configs/
+│   └── config.json        # 配置模板
+└── skills/builtin/        # 内置技能
+```
 
 ```bash
 # 打包发布版本

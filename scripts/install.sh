@@ -1,6 +1,7 @@
 #!/bin/bash
 # LingGuard 安装脚本
-# 用法: sudo make install 或 sudo ./scripts/install.sh
+# 用法: make install 或 sudo ./scripts/install.sh
+# 支持: Linux (systemd), macOS (launchd)
 
 set -e
 
@@ -11,7 +12,16 @@ SERVICE_NAME="lingguard"
 CONFIG_DIR="${HOME}/.lingguard"
 SKILLS_DIR="${CONFIG_DIR}/skills"
 
+# 检测操作系统
+OS="$(uname -s)"
+case "$OS" in
+    Linux*)  PLATFORM="linux" ;;
+    Darwin*) PLATFORM="macos" ;;
+    *)       echo "不支持的操作系统: $OS"; exit 1 ;;
+esac
+
 echo "=== LingGuard 安装 ==="
+echo "平台: $PLATFORM"
 echo "PREFIX: $PREFIX"
 echo "CONFIG_DIR: $CONFIG_DIR"
 echo ""
@@ -26,8 +36,16 @@ fi
 
 # 1. 安装二进制文件
 echo "[1/5] 安装二进制文件..."
+mkdir -p "${PREFIX}/bin"
 install -m 755 lingguard "${PREFIX}/bin/${BIN_NAME}"
-echo "  ✓ 已安装到 ${PREFIX}/bin/${BIN_NAME}"
+
+# macOS: 移除隔离属性，允许运行未签名应用
+if [ "$PLATFORM" = "macos" ]; then
+    xattr -cr "${PREFIX}/bin/${BIN_NAME}" 2>/dev/null || true
+    echo "  ✓ 已安装到 ${PREFIX}/bin/${BIN_NAME} (已移除隔离属性)"
+else
+    echo "  ✓ 已安装到 ${PREFIX}/bin/${BIN_NAME}"
+fi
 
 # 2. 创建配置目录
 echo "[2/5] 创建配置目录..."
@@ -86,46 +104,72 @@ else
     echo "  ! skills/builtin 目录不存在，跳过"
 fi
 
-# 5. 安装 systemd 服务（可选）
-echo "[5/5] 安装 systemd 服务..."
-if [ -f "scripts/lingguard.service" ]; then
-    # 创建服务文件，替换配置路径
-    if [ "$EUID" -eq 0 ]; then
-        # 系统级安装
-        SERVICE_DIR="/etc/systemd/system"
-        cat scripts/lingguard.service | \
-            sed "s|{{USER}}|root|g" | \
-            sed "s|{{HOME}}|/root|g" | \
-            sed "s|{{BIN}}|${PREFIX}/bin/lingguard|g" \
-            > "${SERVICE_DIR}/${SERVICE_NAME}.service"
-        # 系统级服务需要添加 User 字段
-        sed -i '/WorkingDirectory/a User=root' "${SERVICE_DIR}/${SERVICE_NAME}.service"
-        systemctl daemon-reload
-        echo "  ✓ 已安装系统级 systemd 服务"
-        echo ""
-        echo "启用并启动服务:"
-        echo "  sudo systemctl enable lingguard"
-        echo "  sudo systemctl start lingguard"
-    else
-        # 用户级安装
-        SERVICE_DIR="${HOME}/.config/systemd/user"
-        mkdir -p "${SERVICE_DIR}"
-        cat scripts/lingguard.service | \
+# 5. 安装服务（可选）
+echo "[5/5] 安装自动启动服务..."
+
+if [ "$PLATFORM" = "macos" ]; then
+    # macOS: 使用 launchd
+    if [ -f "scripts/com.lingguard.plist" ]; then
+        PLIST_DIR="${HOME}/Library/LaunchAgents"
+        mkdir -p "${PLIST_DIR}"
+        cat scripts/com.lingguard.plist | \
             sed "s|{{HOME}}|${HOME}|g" | \
             sed "s|{{BIN}}|${PREFIX}/bin/lingguard|g" \
-            > "${SERVICE_DIR}/${SERVICE_NAME}.service"
-        echo "  ✓ 已安装用户级 systemd 服务"
-        echo ""
-        echo "注意: 用户服务需要启用 linger 才能在登录前运行"
-        echo "  loginctl enable-linger \$USER"
+            > "${PLIST_DIR}/com.lingguard.plist"
+        echo "  ✓ 已安装 launchd 服务"
         echo ""
         echo "启用并启动服务:"
-        echo "  systemctl --user daemon-reload"
-        echo "  systemctl --user enable lingguard"
-        echo "  systemctl --user start lingguard"
+        echo "  launchctl load ${PLIST_DIR}/com.lingguard.plist"
+        echo ""
+        echo "停止服务:"
+        echo "  launchctl unload ${PLIST_DIR}/com.lingguard.plist"
+        echo ""
+        echo "查看状态:"
+        echo "  launchctl list | grep lingguard"
+    else
+        echo "  ! scripts/com.lingguard.plist 不存在，跳过"
     fi
 else
-    echo "  ! scripts/lingguard.service 不存在，跳过"
+    # Linux: 使用 systemd
+    if [ -f "scripts/lingguard.service" ]; then
+        # 创建服务文件，替换配置路径
+        if [ "$EUID" -eq 0 ]; then
+            # 系统级安装
+            SERVICE_DIR="/etc/systemd/system"
+            cat scripts/lingguard.service | \
+                sed "s|{{USER}}|root|g" | \
+                sed "s|{{HOME}}|/root|g" | \
+                sed "s|{{BIN}}|${PREFIX}/bin/lingguard|g" \
+                > "${SERVICE_DIR}/${SERVICE_NAME}.service"
+            # 系统级服务需要添加 User 字段
+            sed -i '/WorkingDirectory/a User=root' "${SERVICE_DIR}/${SERVICE_NAME}.service"
+            systemctl daemon-reload
+            echo "  ✓ 已安装系统级 systemd 服务"
+            echo ""
+            echo "启用并启动服务:"
+            echo "  sudo systemctl enable lingguard"
+            echo "  sudo systemctl start lingguard"
+        else
+            # 用户级安装
+            SERVICE_DIR="${HOME}/.config/systemd/user"
+            mkdir -p "${SERVICE_DIR}"
+            cat scripts/lingguard.service | \
+                sed "s|{{HOME}}|${HOME}|g" | \
+                sed "s|{{BIN}}|${PREFIX}/bin/lingguard|g" \
+                > "${SERVICE_DIR}/${SERVICE_NAME}.service"
+            echo "  ✓ 已安装用户级 systemd 服务"
+            echo ""
+            echo "注意: 用户服务需要启用 linger 才能在登录前运行"
+            echo "  loginctl enable-linger \$USER"
+            echo ""
+            echo "启用并启动服务:"
+            echo "  systemctl --user daemon-reload"
+            echo "  systemctl --user enable lingguard"
+            echo "  systemctl --user start lingguard"
+        fi
+    else
+        echo "  ! scripts/lingguard.service 不存在，跳过"
+    fi
 fi
 
 echo ""
