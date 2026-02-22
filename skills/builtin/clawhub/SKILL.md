@@ -25,27 +25,29 @@ npx --yes clawhub@latest search "web scraping" --limit 5
 
 ## Install
 
+**IMPORTANT: Use --workdir with absolute path, do NOT use cd command!**
+
 ```bash
-npx --yes clawhub@latest install <slug> --workdir ~/.lingguard/workspace
+npx --yes clawhub@latest install <slug> --workdir "$HOME/.lingguard/workspace"
 ```
 
-Replace `<slug>` with the skill name from search results. Skills are installed to `~/.lingguard/workspace/skills/`.
+Replace `<slug>` with the skill name from search results.
 
 **If security warning appears:** Ask user for confirmation, then use `--force`:
 ```bash
-npx --yes clawhub@latest install <slug> --workdir ~/.lingguard/workspace --force
+npx --yes clawhub@latest install <slug> --workdir "$HOME/.lingguard/workspace" --force
 ```
 
 ## Update
 
 ```bash
-npx --yes clawhub@latest update --all --workdir ~/.lingguard/workspace
+npx --yes clawhub@latest update --all --workdir "$HOME/.lingguard/workspace"
 ```
 
 ## List installed
 
 ```bash
-npx --yes clawhub@latest list --workdir ~/.lingguard/workspace
+npx --yes clawhub@latest list --workdir "$HOME/.lingguard/workspace"
 ```
 
 ## Notes
