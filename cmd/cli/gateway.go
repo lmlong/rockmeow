@@ -229,28 +229,28 @@ func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace strin
 // createCronJobCallback 创建定时任务执行回调
 func createCronJobCallback(ag *agent.Agent, mgr *channels.Manager) cron.JobCallback {
 	return func(job *cron.CronJob) (string, error) {
-		logger.Info("定时任务开始执行",
-			"任务名", job.Name,
-			"投递", job.Payload.Deliver,
-			"渠道", job.Payload.Channel,
-			"目标", job.Payload.To)
+		logger.Info("Cron job executing",
+			"name", job.Name,
+			"deliver", job.Payload.Deliver,
+			"channel", job.Payload.Channel,
+			"to", job.Payload.To)
 
 		// 直接发送通知（不经过 LLM）
 		if job.Payload.Deliver && job.Payload.Channel != "" && job.Payload.To != "" {
 			content := fmt.Sprintf("⏰ **%s**\n\n%s", job.Name, job.Payload.Message)
-			logger.Info("发送定时任务通知", "渠道", job.Payload.Channel, "目标", job.Payload.To)
+			logger.Info("Sending cron notification", "channel", job.Payload.Channel, "to", job.Payload.To)
 
 			if sendErr := mgr.SendMessage(job.Payload.Channel, job.Payload.To, content); sendErr != nil {
-				logger.Error("发送定时任务通知失败", "错误", sendErr)
+				logger.Error("Failed to send cron notification", "error", sendErr)
 			} else {
-				logger.Info("定时任务通知发送成功", "任务名", job.Name)
+				logger.Info("Cron notification sent", "name", job.Name)
 			}
 		} else {
-			logger.Warn("跳过定时任务通知",
-				"任务名", job.Name,
-				"投递", job.Payload.Deliver,
-				"渠道", job.Payload.Channel,
-				"目标", job.Payload.To)
+			logger.Warn("Cron notification skipped",
+				"name", job.Name,
+				"deliver", job.Payload.Deliver,
+				"channel", job.Payload.Channel,
+				"to", job.Payload.To)
 		}
 
 		// 返回成功，不调用 LLM
