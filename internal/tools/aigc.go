@@ -112,44 +112,7 @@ func (t *AIGCTool) Name() string {
 
 // Description 返回工具描述
 func (t *AIGCTool) Description() string {
-	maxDuration := t.imageToVideoDuration
-	if maxDuration <= 0 {
-		maxDuration = 5
-	}
-
-	return fmt.Sprintf(`图像和视频生成工具，使用阿里云通义万相。
-
-【重要】每次调用此工具都会生成新的内容。不要从记忆或历史记录中返回之前生成的图片/视频路径，必须实际调用此工具生成新内容。
-
-【记录】生成成功后，使用 memory 工具记录生成事件，例如：
-{"action": "log", "event": "生成古风美女图片，保存到 image-20260220.png"}
-
-Actions:
-- generate_image: 根据文字描述生成图片
-- generate_video: 根据文字描述生成视频
-- generate_video_from_image: 根据已有图片生成视频
-- generate_video_from_video: 根据参考视频生成新视频（保持角色一致性）
-
-Usage:
-{"action": "generate_image", "prompt": "一只可爱的猫咪坐在椅子上"}
-{"action": "generate_video", "prompt": "一只猫在花园里散步", "duration": 5}
-{"action": "generate_video_from_image", "prompt": "猫开始走动", "image_path": "/path/to/image.png"}
-{"action": "generate_video_from_video", "prompt": "人物开始跳舞", "video_path": "/path/to/video.mp4"}
-
-File paths:
-- 生成的图片/视频: ~/.lingguard/workspace/generated/
-- 聊天中下载的图片/视频: ~/.lingguard/workspace/media/
-- 必须使用实际文件路径，先列出文件确认路径
-
-Available models:
-- wan2.6-t2i: 文生图 (默认)
-- wan2.6-t2v: 文生视频
-- wan2.6-i2v-flash: 图生视频
-- wan2.6-r2v: 参考生视频（视频生视频）
-
-Video generation:
-- 默认时长: 5 秒
-- 图生视频最大时长: %d 秒`, maxDuration)
+	return "生成图片和视频（文生图、文生视频、图生视频、视频生视频）"
 }
 
 // Parameters 返回参数定义

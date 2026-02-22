@@ -50,30 +50,7 @@ func (t *TTSTool) Name() string {
 
 // Description 返回工具描述
 func (t *TTSTool) Description() string {
-	return `语音合成工具，将文本转换为语音，使用阿里云通义千问 TTS。
-
-Actions:
-- synthesize: 将文本合成为语音
-
-Usage:
-{"action": "synthesize", "text": "你好，这是一段测试语音", "voice": "Cherry"}
-
-Available voices (音色):
-- Cherry: 甜美女声 (中文，默认)
-- Serena: 温柔女声 (中文)
-- Ethan: 沉稳男声 (中文)
-- Chelsie: 活力女声 (中文)
-- Momo: 可爱童声 (中文)
-- Vivian: 知性女声 (中文)
-- Moon: 亲切男声 (中文)
-- Maia: 清澈女声 (中文)
-- Kai: 磁性男声 (中文)
-
-Notes:
-- 文本最大长度: 5000 字符
-- 生成的音频为 WAV 格式 (24kHz)
-- 音频 URL 24 小时内有效
-- 返回格式: [GENERATED_AUDIO:本地文件路径] 供飞书发送`
+	return "文字转语音（支持多种音色）"
 }
 
 // Parameters 返回参数定义

@@ -39,37 +39,7 @@ func NewCronTool(service CronService) *CronTool {
 func (t *CronTool) Name() string { return "cron" }
 
 func (t *CronTool) Description() string {
-	return `管理内置定时任务（提醒、日程、周期任务）。
-
-【重要】这是 LingGuard 的内置定时任务系统，不是系统的 crontab！
-
-当用户提到以下关键词时使用此工具：
-- "定时任务"、"有几个定时任务"、"查看定时任务"
-- "提醒"、"设置提醒"、"X分钟后提醒我"
-- "日程"、"计划任务"、"周期任务"
-
-Actions:
-- list: 列出所有定时任务
-- add: 创建新的定时任务/提醒
-- remove: 删除任务
-- enable: 启用任务
-- disable: 禁用任务
-
-Schedule formats:
-- every:<duration>  - 周期任务 (e.g., "every:1h", "every:30m", "every:24h")
-- at:<datetime>     - 指定时间执行一次 (e.g., "at:2026-02-17 18:00")
-- at:<relative>     - 相对时间 (e.g., "at:in 5m", "at:+1h", "at:in 30m")
-- cron:<expr>       - Cron 表达式 (e.g., "cron:0 9 * * *" 表示每天9点)
-
-返回格式说明:
-- "Found N scheduled tasks:" 表示找到 N 个任务（N > 0 表示有任务）
-- "No scheduled tasks found." 表示确实没有任务
-- [✓] = 已启用, [✗] = 已禁用
-
-Examples:
-- 查看定时任务: {"action": "list"}
-- 5分钟后提醒: {"action": "add", "name": "提醒", "schedule": "at:in 5m", "message": "时间到了！"}
-- 每小时提醒: {"action": "add", "name": "整点报时", "schedule": "every:1h", "message": "整点了"}`
+	return "管理定时任务和提醒（添加、查看、删除）"
 }
 
 func (t *CronTool) Parameters() map[string]interface{} {

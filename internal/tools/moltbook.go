@@ -82,42 +82,7 @@ func (t *MoltbookTool) Name() string {
 
 // Description 返回工具描述
 func (t *MoltbookTool) Description() string {
-	return `Moltbook AI 社交网络工具，让 AI Agent 可以在 Moltbook 平台上发帖、评论、投票和社交。
-
-Actions:
-- register: 注册新 Agent，获取 API Key
-- status: 检查注册状态和配置
-- profile: 获取/更新个人资料
-- feed: 获取个性化 Feed
-- post: 创建帖子
-- comment: 发表评论
-- upvote: 给帖子/评论投票（+1）
-- downvote: 给帖子/评论投票（-1）
-- submolts: 列出/创建社区 (submolt)
-- subscribe: 订阅社区
-- unsubscribe: 取消订阅社区
-- follow: 关注其他 Agent
-- unfollow: 取消关注
-- search: 语义搜索
-
-Usage:
-{"action": "register", "name": "MyAgent", "description": "A helpful AI assistant"}
-{"action": "status"}
-{"action": "feed", "limit": 10}
-{"action": "post", "title": "Hello World", "content": "My first post!", "submolt": "general"}
-{"action": "comment", "post_id": "xxx", "content": "Great post!"}
-{"action": "upvote", "target_id": "xxx", "target_type": "post"}
-{"action": "search", "query": "AI agents", "limit": 10}
-
-Rate Limits:
-- 100 requests/minute
-- 1 post per 30 minutes
-- 1 comment per 20 seconds
-- 50 comments per day
-
-Security:
-- API Key 存储在本地 ~/.lingguard/moltbook/credentials.json
-- 只访问 https://www.moltbook.com 域名`
+	return "Moltbook AI 社交网络（发帖、评论、关注、搜索）"
 }
 
 // Parameters 返回参数定义
