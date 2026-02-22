@@ -128,9 +128,9 @@ func (t *MoltbookTool) Parameters() map[string]interface{} {
 				"enum":        []string{"post", "comment"},
 				"description": "目标类型 (用于 upvote, downvote)",
 			},
-			"agent_id": map[string]interface{}{
+			"agent_name": map[string]interface{}{
 				"type":        "string",
-				"description": "Agent ID (用于 follow, unfollow)",
+				"description": "Agent 名称 (用于 follow, unfollow)",
 			},
 			"query": map[string]interface{}{
 				"type":        "string",
@@ -161,7 +161,7 @@ func (t *MoltbookTool) Execute(ctx context.Context, args json.RawMessage) (strin
 		PostID      string `json:"post_id"`
 		TargetID    string `json:"target_id"`
 		TargetType  string `json:"target_type"`
-		AgentID     string `json:"agent_id"`
+		AgentName   string `json:"agent_name"`
 		Query       string `json:"query"`
 		Limit       int    `json:"limit"`
 		Create      bool   `json:"create"`
@@ -199,9 +199,9 @@ func (t *MoltbookTool) Execute(ctx context.Context, args json.RawMessage) (strin
 	case "unsubscribe":
 		result, err = t.subscribe(ctx, params.Submolt, false)
 	case "follow":
-		result, err = t.follow(ctx, params.AgentID, true)
+		result, err = t.follow(ctx, params.AgentName, true)
 	case "unfollow":
-		result, err = t.follow(ctx, params.AgentID, false)
+		result, err = t.follow(ctx, params.AgentName, false)
 	case "search":
 		result, err = t.search(ctx, params.Query, params.Limit)
 	default:
@@ -229,13 +229,16 @@ func (t *MoltbookTool) register(ctx context.Context, name, description string) (
 		"description": description,
 	}
 
+	// 官方 API 响应格式：{"agent": {"api_key": "...", "claim_url": "...", "verification_code": "..."}}
 	var resp struct {
-		APIKey           string `json:"api_key"`
-		AgentID          string `json:"agent_id"`
-		ClaimURL         string `json:"claim_url"`
-		VerificationCode string `json:"verification_code"`
-		Message          string `json:"message"`
-		Error            string `json:"error"`
+		Agent struct {
+			APIKey           string `json:"api_key"`
+			AgentID          string `json:"agent_id"`
+			ClaimURL         string `json:"claim_url"`
+			VerificationCode string `json:"verification_code"`
+		} `json:"agent"`
+		Important string `json:"important"`
+		Error     string `json:"error"`
 	}
 
 	if err := t.doRequest(ctx, "POST", "/agents/register", reqBody, &resp, false); err != nil {
@@ -247,26 +250,26 @@ func (t *MoltbookTool) register(ctx context.Context, name, description string) (
 	}
 
 	// 保存凭证到本地
-	if resp.APIKey != "" {
+	if resp.Agent.APIKey != "" {
 		creds := &MoltbookCredentials{
-			APIKey:    resp.APIKey,
+			APIKey:    resp.Agent.APIKey,
 			AgentName: name,
-			AgentID:   resp.AgentID,
+			AgentID:   resp.Agent.AgentID,
 			CreatedAt: time.Now().Format(time.RFC3339),
 		}
 		if err := t.saveCredentials(creds); err != nil {
 			return "", fmt.Errorf("save credentials: %w", err)
 		}
-		t.apiKey = resp.APIKey
+		t.apiKey = resp.Agent.APIKey
 		t.agentName = name
 	}
 
-	result := fmt.Sprintf("注册成功！\nAgent: %s\nAgent ID: %s\nAPI Key: %s\n",
-		name, resp.AgentID, resp.APIKey)
-	if resp.ClaimURL != "" {
-		result += fmt.Sprintf("\n访问以下链接认领你的 Agent:\n%s\n", resp.ClaimURL)
-		if resp.VerificationCode != "" {
-			result += fmt.Sprintf("验证码: %s\n", resp.VerificationCode)
+	result := fmt.Sprintf("注册成功！\nAgent: %s\nAPI Key: %s\n",
+		name, resp.Agent.APIKey)
+	if resp.Agent.ClaimURL != "" {
+		result += fmt.Sprintf("\n访问以下链接认领你的 Agent:\n%s\n", resp.Agent.ClaimURL)
+		if resp.Agent.VerificationCode != "" {
+			result += fmt.Sprintf("验证码: %s\n", resp.Agent.VerificationCode)
 		}
 	}
 	return result, nil
@@ -295,17 +298,28 @@ func (t *MoltbookTool) profile(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("not registered, please run register first")
 	}
 
+	// 官方 API 响应格式：{"success": true, "agent": {...}}
 	var resp struct {
-		AgentID     string `json:"agent_id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Karma       int    `json:"karma"`
-		CreatedAt   string `json:"created_at"`
-		Posts       int    `json:"posts"`
-		Comments    int    `json:"comments"`
-		Followers   int    `json:"followers"`
-		Following   int    `json:"following"`
-		Error       string `json:"error"`
+		Success bool   `json:"success"`
+		Error   string `json:"error"`
+		Agent   struct {
+			AgentID        string `json:"agent_id"`
+			Name           string `json:"name"`
+			Description    string `json:"description"`
+			Karma          int    `json:"karma"`
+			CreatedAt      string `json:"created_at"`
+			LastActive     string `json:"last_active"`
+			Posts          int    `json:"posts"`
+			Comments       int    `json:"comments"`
+			PostCount      int    `json:"post_count"`
+			CommentCount   int    `json:"comment_count"`
+			Followers      int    `json:"followers"`
+			Following      int    `json:"following"`
+			FollowerCount  int    `json:"follower_count"`
+			FollowingCount int    `json:"following_count"`
+			IsClaimed      bool   `json:"is_claimed"`
+			IsActive       bool   `json:"is_active"`
+		} `json:"agent"`
 	}
 
 	if err := t.doRequest(ctx, "GET", "/agents/me", nil, &resp, true); err != nil {
@@ -316,8 +330,26 @@ func (t *MoltbookTool) profile(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("get profile failed: %s", resp.Error)
 	}
 
+	// 兼容不同的字段名
+	posts := resp.Agent.Posts
+	if posts == 0 {
+		posts = resp.Agent.PostCount
+	}
+	comments := resp.Agent.Comments
+	if comments == 0 {
+		comments = resp.Agent.CommentCount
+	}
+	followers := resp.Agent.Followers
+	if followers == 0 {
+		followers = resp.Agent.FollowerCount
+	}
+	following := resp.Agent.Following
+	if following == 0 {
+		following = resp.Agent.FollowingCount
+	}
+
 	return fmt.Sprintf("Agent: %s\nID: %s\n描述: %s\nKarma: %d\n帖子: %d\n评论: %d\n关注者: %d\n正在关注: %d\n注册时间: %s",
-		resp.Name, resp.AgentID, resp.Description, resp.Karma, resp.Posts, resp.Comments, resp.Followers, resp.Following, resp.CreatedAt), nil
+		resp.Agent.Name, resp.Agent.AgentID, resp.Agent.Description, resp.Agent.Karma, posts, comments, followers, following, resp.Agent.CreatedAt), nil
 }
 
 // feed 获取个性化 Feed
@@ -330,21 +362,31 @@ func (t *MoltbookTool) feed(ctx context.Context, limit int) (string, error) {
 		limit = 10
 	}
 
+	// 官方 API 响应格式
 	var resp struct {
-		Posts []struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error"`
+		Posts   []struct {
 			ID        string `json:"id"`
 			Title     string `json:"title"`
 			Content   string `json:"content"`
 			Author    string `json:"author_name"`
-			Submolt   string `json:"submolt"`
+			AuthorObj struct {
+				Name string `json:"name"`
+			} `json:"author"`
+			Submolt    string `json:"submolt"`
+			SubmoltObj struct {
+				Name string `json:"name"`
+			} `json:"submolt_obj"`
 			Upvotes   int    `json:"upvotes"`
+			Downvotes int    `json:"downvotes"`
 			Comments  int    `json:"comments"`
+			Score     int    `json:"score"`
 			CreatedAt string `json:"created_at"`
 		} `json:"posts"`
-		Error string `json:"error"`
 	}
 
-	endpoint := fmt.Sprintf("/feed?limit=%d", limit)
+	endpoint := fmt.Sprintf("/feed?sort=hot&limit=%d", limit)
 	if err := t.doRequest(ctx, "GET", endpoint, nil, &resp, true); err != nil {
 		return "", err
 	}
@@ -360,14 +402,28 @@ func (t *MoltbookTool) feed(ctx context.Context, limit int) (string, error) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("=== Feed (共 %d 条) ===\n\n", len(resp.Posts)))
 	for i, post := range resp.Posts {
-		sb.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, post.Submolt, post.Title))
+		// 兼容不同的字段名
+		author := post.Author
+		if author == "" && post.AuthorObj.Name != "" {
+			author = post.AuthorObj.Name
+		}
+		submolt := post.Submolt
+		if submolt == "" && post.SubmoltObj.Name != "" {
+			submolt = post.SubmoltObj.Name
+		}
+		upvotes := post.Upvotes
+		if upvotes == 0 && post.Score > 0 {
+			upvotes = post.Score
+		}
+
+		sb.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, submolt, post.Title))
 		if len(post.Content) > 100 {
 			sb.WriteString(fmt.Sprintf("   %s...\n", post.Content[:100]))
-		} else {
+		} else if post.Content != "" {
 			sb.WriteString(fmt.Sprintf("   %s\n", post.Content))
 		}
 		sb.WriteString(fmt.Sprintf("   by %s | 👍 %d | 💬 %d | %s\n\n",
-			post.Author, post.Upvotes, post.Comments, post.ID))
+			author, upvotes, post.Comments, post.ID))
 	}
 	return sb.String(), nil
 }
@@ -420,8 +476,8 @@ func (t *MoltbookTool) createPost(ctx context.Context, title, content, submolt s
 		return "", fmt.Errorf("create post failed: %s", resp.Error)
 	}
 
-	// 如果需要验证，自动处理
-	if resp.VerificationRequired && resp.Post != nil && resp.Post.Verification != nil {
+	// 如果需要验证，自动处理（API 直接返回 verification 对象）
+	if resp.Post != nil && resp.Post.Verification != nil {
 		challenge := resp.Post.Verification.ChallengeText
 		logger.Info("Moltbook post needs verification", "challenge", challenge)
 
@@ -475,17 +531,31 @@ func (t *MoltbookTool) createComment(ctx context.Context, postID, content string
 	}
 
 	reqBody := map[string]string{
-		"post_id": postID,
 		"content": content,
 	}
 
+	// 响应结构 - 根据官方 API 可能有验证要求
 	var resp struct {
-		CommentID string `json:"comment_id"`
-		Message   string `json:"message"`
-		Error     string `json:"error"`
+		Success              bool   `json:"success"`
+		Message              string `json:"message"`
+		Error                string `json:"error"`
+		CommentID            string `json:"comment_id"`
+		VerificationRequired bool   `json:"verification_required"`
+		Comment              *struct {
+			ID                 string `json:"id"`
+			VerificationStatus string `json:"verification_status"`
+			Verification       *struct {
+				VerificationCode string `json:"verification_code"`
+				ChallengeText    string `json:"challenge_text"`
+				ExpiresAt        string `json:"expires_at"`
+				Instructions     string `json:"instructions"`
+			} `json:"verification"`
+		} `json:"comment"`
 	}
 
-	if err := t.doRequest(ctx, "POST", "/comments", reqBody, &resp, true); err != nil {
+	// 官方 API 端点: POST /posts/{post_id}/comments
+	endpoint := fmt.Sprintf("/posts/%s/comments", postID)
+	if err := t.doRequest(ctx, "POST", endpoint, reqBody, &resp, true); err != nil {
 		return "", err
 	}
 
@@ -493,7 +563,42 @@ func (t *MoltbookTool) createComment(ctx context.Context, postID, content string
 		return "", fmt.Errorf("create comment failed: %s", resp.Error)
 	}
 
-	return fmt.Sprintf("评论成功！\nComment ID: %s\n内容: %s", resp.CommentID, content), nil
+	// 如果需要验证，自动处理（API 直接返回 verification 对象）
+	if resp.Comment != nil && resp.Comment.Verification != nil {
+		challenge := resp.Comment.Verification.ChallengeText
+		logger.Info("Moltbook comment needs verification", "challenge", challenge)
+
+		// 解析并计算数学问题
+		answer := solveMoltbookChallenge(challenge)
+		logger.Info("Moltbook challenge solved", "answer", answer)
+
+		if answer != "" {
+			// 提交验证
+			verifyResp := struct {
+				Success bool   `json:"success"`
+				Message string `json:"message"`
+				Error   string `json:"error"`
+			}{}
+			verifyBody := map[string]string{
+				"verification_code": resp.Comment.Verification.VerificationCode,
+				"answer":            answer,
+			}
+			if err := t.doRequest(ctx, "POST", "/verify", verifyBody, &verifyResp, true); err != nil {
+				return "", fmt.Errorf("verify failed: %w", err)
+			}
+			if !verifyResp.Success {
+				return fmt.Sprintf("评论成功但验证失败: %s", verifyResp.Message), nil
+			}
+			logger.Info("Moltbook verification successful", "answer", answer)
+		}
+	}
+
+	commentID := resp.CommentID
+	if resp.Comment != nil {
+		commentID = resp.Comment.ID
+	}
+
+	return fmt.Sprintf("评论成功！\nComment ID: %s\n内容: %s", commentID, content), nil
 }
 
 // vote 投票
@@ -509,19 +614,29 @@ func (t *MoltbookTool) vote(ctx context.Context, targetID, targetType string, va
 		targetType = "post"
 	}
 
-	reqBody := map[string]interface{}{
-		"target_id":   targetID,
-		"target_type": targetType,
-		"value":       value,
+	// 官方 API: POST /posts/{id}/upvote 或 /comments/{id}/upvote
+	voteType := "upvote"
+	if value < 0 {
+		voteType = "downvote"
+	}
+
+	var endpoint string
+	if targetType == "comment" {
+		endpoint = fmt.Sprintf("/comments/%s/%s", targetID, voteType)
+	} else {
+		endpoint = fmt.Sprintf("/posts/%s/%s", targetID, voteType)
 	}
 
 	var resp struct {
-		Message  string `json:"message"`
-		NewScore int    `json:"new_score"`
-		Error    string `json:"error"`
+		Success          bool   `json:"success"`
+		Message          string `json:"message"`
+		Error            string `json:"error"`
+		NewScore         int    `json:"new_score"`
+		AlreadyFollowing bool   `json:"already_following"`
+		Suggestion       string `json:"suggestion"`
 	}
 
-	if err := t.doRequest(ctx, "POST", "/vote", reqBody, &resp, true); err != nil {
+	if err := t.doRequest(ctx, "POST", endpoint, nil, &resp, true); err != nil {
 		return "", err
 	}
 
@@ -529,11 +644,14 @@ func (t *MoltbookTool) vote(ctx context.Context, targetID, targetType string, va
 		return "", fmt.Errorf("vote failed: %s", resp.Error)
 	}
 
-	voteType := "upvote"
-	if value < 0 {
-		voteType = "downvote"
+	result := fmt.Sprintf("%s 成功！\nTarget: %s", voteType, targetID)
+	if resp.NewScore > 0 {
+		result += fmt.Sprintf("\n新分数: %d", resp.NewScore)
 	}
-	return fmt.Sprintf("%s 成功！\nTarget: %s\n新分数: %d", voteType, targetID, resp.NewScore), nil
+	if resp.Message != "" {
+		result += fmt.Sprintf("\n%s", resp.Message)
+	}
+	return result, nil
 }
 
 // submolts 列出/创建社区
@@ -612,72 +730,76 @@ func (t *MoltbookTool) subscribe(ctx context.Context, submolt string, subscribe 
 		return "", fmt.Errorf("submolt is required")
 	}
 
-	action := "subscribe"
-	if !subscribe {
-		action = "unsubscribe"
+	// 官方 API: POST /submolts/{name}/subscribe (订阅)
+	//          DELETE /submolts/{name}/subscribe (取消订阅)
+	var method string
+	var actionCN string
+	if subscribe {
+		method = "POST"
+		actionCN = "订阅"
+	} else {
+		method = "DELETE"
+		actionCN = "取消订阅"
 	}
 
-	reqBody := map[string]string{
-		"submolt": submolt,
-	}
+	endpoint := fmt.Sprintf("/submolts/%s/subscribe", submolt)
 
 	var resp struct {
+		Success bool   `json:"success"`
 		Message string `json:"message"`
 		Error   string `json:"error"`
 	}
 
-	if err := t.doRequest(ctx, "POST", "/submolts/"+action, reqBody, &resp, true); err != nil {
+	if err := t.doRequest(ctx, method, endpoint, nil, &resp, true); err != nil {
 		return "", err
 	}
 
 	if resp.Error != "" {
-		return "", fmt.Errorf("%s failed: %s", action, resp.Error)
+		return "", fmt.Errorf("%s failed: %s", actionCN, resp.Error)
 	}
 
-	actionCN := "订阅"
-	if !subscribe {
-		actionCN = "取消订阅"
-	}
 	return fmt.Sprintf("%s成功！\n社区: %s", actionCN, submolt), nil
 }
 
 // follow 关注/取消关注
-func (t *MoltbookTool) follow(ctx context.Context, agentID string, follow bool) (string, error) {
+func (t *MoltbookTool) follow(ctx context.Context, agentName string, follow bool) (string, error) {
 	if t.apiKey == "" {
 		return "", fmt.Errorf("not registered, please run register first")
 	}
 
-	if agentID == "" {
-		return "", fmt.Errorf("agent_id is required")
+	if agentName == "" {
+		return "", fmt.Errorf("agent_name is required")
 	}
 
-	action := "follow"
-	if !follow {
-		action = "unfollow"
+	// 官方 API: POST /agents/{name}/follow (关注)
+	//          DELETE /agents/{name}/follow (取消关注)
+	var method string
+	var actionCN string
+	if follow {
+		method = "POST"
+		actionCN = "关注"
+	} else {
+		method = "DELETE"
+		actionCN = "取消关注"
 	}
 
-	reqBody := map[string]string{
-		"agent_id": agentID,
-	}
+	endpoint := fmt.Sprintf("/agents/%s/follow", agentName)
 
 	var resp struct {
+		Success bool   `json:"success"`
 		Message string `json:"message"`
 		Error   string `json:"error"`
 	}
 
-	if err := t.doRequest(ctx, "POST", "/agents/"+action, reqBody, &resp, true); err != nil {
+	if err := t.doRequest(ctx, method, endpoint, nil, &resp, true); err != nil {
 		return "", err
 	}
 
 	if resp.Error != "" {
-		return "", fmt.Errorf("%s failed: %s", action, resp.Error)
+		return "", fmt.Errorf("%s failed: %s", actionCN, resp.Error)
 	}
 
-	actionCN := "关注"
-	if !follow {
-		actionCN = "取消关注"
-	}
-	return fmt.Sprintf("%s成功！\nAgent ID: %s", actionCN, agentID), nil
+	return fmt.Sprintf("%s成功！\nAgent: %s", actionCN, agentName), nil
 }
 
 // search 语义搜索
@@ -694,17 +816,32 @@ func (t *MoltbookTool) search(ctx context.Context, query string, limit int) (str
 		limit = 10
 	}
 
+	// 官方 API 响应格式
 	var resp struct {
+		Success bool   `json:"success"`
+		Query   string `json:"query"`
+		Type    string `json:"type"`
+		Error   string `json:"error"`
 		Results []struct {
-			ID        string  `json:"id"`
-			Type      string  `json:"type"`
-			Title     string  `json:"title"`
-			Content   string  `json:"content"`
-			Score     float64 `json:"score"`
-			Author    string  `json:"author_name"`
-			CreatedAt string  `json:"created_at"`
+			ID         string  `json:"id"`
+			Type       string  `json:"type"`
+			Title      string  `json:"title"`
+			Content    string  `json:"content"`
+			Upvotes    int     `json:"upvotes"`
+			Downvotes  int     `json:"downvotes"`
+			Score      float64 `json:"score"`
+			Similarity float64 `json:"similarity"`
+			Author     string  `json:"author_name"`
+			AuthorObj  struct {
+				Name string `json:"name"`
+			} `json:"author"`
+			SubmoltObj struct {
+				Name        string `json:"name"`
+				DisplayName string `json:"display_name"`
+			} `json:"submolt"`
+			CreatedAt string `json:"created_at"`
 		} `json:"results"`
-		Error string `json:"error"`
+		Count int `json:"count"`
 	}
 
 	endpoint := fmt.Sprintf("/search?q=%s&limit=%d", query, limit)
@@ -723,14 +860,28 @@ func (t *MoltbookTool) search(ctx context.Context, query string, limit int) (str
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("=== 搜索结果: %s (共 %d 条) ===\n\n", query, len(resp.Results)))
 	for i, r := range resp.Results {
-		sb.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, r.Type, r.Title))
+		// 兼容不同的字段名
+		author := r.Author
+		if author == "" && r.AuthorObj.Name != "" {
+			author = r.AuthorObj.Name
+		}
+		similarity := r.Similarity
+		if similarity == 0 && r.Score > 0 {
+			similarity = r.Score
+		}
+
+		title := r.Title
+		if title == "" && r.Type == "comment" {
+			title = "(评论)"
+		}
+		sb.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, r.Type, title))
 		if len(r.Content) > 80 {
 			sb.WriteString(fmt.Sprintf("   %s...\n", r.Content[:80]))
-		} else {
+		} else if r.Content != "" {
 			sb.WriteString(fmt.Sprintf("   %s\n", r.Content))
 		}
 		sb.WriteString(fmt.Sprintf("   by %s | 相似度: %.2f | %s\n\n",
-			r.Author, r.Score, r.ID))
+			author, similarity, r.ID))
 	}
 	return sb.String(), nil
 }
@@ -818,25 +969,27 @@ func solveMoltbookChallenge(challenge string) string {
 	cleaned := cleanObfuscatedText(challenge)
 	logger.Debug("Moltbook challenge cleaned", "original", challenge, "cleaned", cleaned)
 
-	// 步骤2: 提取数字单词和操作符
-	numbers, operation := extractMathProblem(cleaned)
+	// 步骤2: 首先确定操作类型（基于上下文关键词）
+	operation := detectOperation(cleaned)
+
+	// 步骤3: 提取数字
+	numbers := extractNumbers(cleaned)
+
+	logger.Debug("Moltbook challenge parsed", "numbers", numbers, "operation", operation)
 
 	if len(numbers) >= 2 && operation != "" {
 		var result float64
 		switch operation {
-		case "+", "plus", "add", "and":
+		case "+":
 			result = float64(numbers[0]) + float64(numbers[1])
-		case "-", "minus", "subtract", "slows", "reduces", "decreases":
+		case "-":
 			result = float64(numbers[0]) - float64(numbers[1])
-		case "*", "times", "multiplied", "multiply", "exerts", "at":
+		case "*":
 			result = float64(numbers[0]) * float64(numbers[1])
-		case "/", "divided", "divide", "by":
+		case "/":
 			if numbers[1] != 0 {
 				result = float64(numbers[0]) / float64(numbers[1])
 			}
-		default:
-			// 默认尝试乘法（物理问题通常是 F * d = torque）
-			result = float64(numbers[0]) * float64(numbers[1])
 		}
 		return fmt.Sprintf("%.2f", result)
 	}
@@ -846,24 +999,115 @@ func solveMoltbookChallenge(challenge string) string {
 }
 
 // cleanObfuscatedText 清理混淆的挑战文本
+// Moltbook 使用两种混淆格式：
+// 1. 交替大小写：如 "tWeNnTy" -> "twenty"
+// 2. 重复字母：如 "LlOoBb" -> "Lob"（每个字母出现两次，大小写交替）
 func cleanObfuscatedText(text string) string {
-	// 移除所有非字母字符，保留空格
-	var result strings.Builder
+	// 步骤1: 提取所有字母
+	var letters []rune
 	for _, ch := range text {
-		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == ' ' {
-			result.WriteRune(ch)
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
+			letters = append(letters, ch)
+		} else if ch == ' ' {
+			letters = append(letters, ' ')
 		}
 	}
-	// 转小写并规范化空格
-	cleaned := strings.ToLower(result.String())
-	return strings.Join(strings.Fields(cleaned), " ")
+
+	// 步骤2: 去重 - 只移除相邻的重复字母（忽略大小写）
+	var deduped []rune
+	for i := 0; i < len(letters); i++ {
+		ch := letters[i]
+		if ch == ' ' {
+			deduped = append(deduped, ' ')
+			continue
+		}
+
+		// 检查是否与前一个字母相邻且相同（忽略大小写）
+		if len(deduped) > 0 {
+			last := deduped[len(deduped)-1]
+			if last != ' ' {
+				chLower := ch
+				lastLower := last
+				if ch >= 'A' && ch <= 'Z' {
+					chLower = ch + ('a' - 'A')
+				}
+				if last >= 'A' && last <= 'Z' {
+					lastLower = last + ('a' - 'A')
+				}
+				// 如果与前一个保留的字母相同，跳过
+				if chLower == lastLower {
+					continue
+				}
+			}
+		}
+		deduped = append(deduped, ch)
+	}
+
+	// 步骤3: 转小写并规范化空格
+	result := strings.ToLower(string(deduped))
+	return strings.Join(strings.Fields(result), " ")
 }
 
-// extractMathProblem 从清理后的文本中提取数学问题
-func extractMathProblem(text string) ([]int, string) {
+// detectOperation 根据上下文关键词检测操作类型
+// 优先级：明确的乘法/除法词 > 加法/减法词 > total/sum 等上下文
+func detectOperation(text string) string {
+	textLower := strings.ToLower(text)
+
+	// 最高优先级：明确的乘法关键词
+	if strings.Contains(textLower, "multiplied by") || strings.Contains(textLower, "multiplied") ||
+		strings.Contains(textLower, " times ") || strings.Contains(textLower, "×") {
+		return "*"
+	}
+
+	// 除法关键词
+	if strings.Contains(textLower, "divided by") || strings.Contains(textLower, "divided") {
+		return "/"
+	}
+
+	// 减法关键词
+	if strings.Contains(textLower, "slows by") || strings.Contains(textLower, "reduces by") ||
+		strings.Contains(textLower, "decreases by") || strings.Contains(textLower, "minus") ||
+		strings.Contains(textLower, "less than") {
+		return "-"
+	}
+
+	// 加法关键词（明确的）
+	if strings.Contains(textLower, " plus ") || strings.Contains(textLower, " added to") ||
+		strings.Contains(textLower, "combined with") {
+		return "+"
+	}
+
+	// 物理问题 - torque 是乘法
+	if strings.Contains(textLower, "torque") {
+		return "*"
+	}
+
+	// "another" 或 "gains" 通常表示加法
+	if strings.Contains(textLower, "another") || strings.Contains(textLower, "and then") ||
+		strings.Contains(textLower, "gains") {
+		return "+"
+	}
+
+	// "total" / "sum" 等求和词（但要注意上下文）
+	// 如果前面有 "multiplied" 或 "times"，则 total 只是问最终结果
+	if strings.Contains(textLower, "total") || strings.Contains(textLower, "sum") ||
+		strings.Contains(textLower, "altogether") {
+		// 检查是否有乘法词在前面
+		if strings.Contains(textLower, "multiplied") || strings.Contains(textLower, "times") {
+			return "*"
+		}
+		return "+"
+	}
+
+	// 默认加法
+	return "+"
+}
+
+// extractNumbers 从清理后的文本中提取数字
+func extractNumbers(text string) []int {
 	words := strings.Fields(text)
 
-	// 数字单词映射
+	// 数字单词映射（包含 Moltbook 挑战中的拼写变体）
 	numberWords := map[string]int{
 		"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
 		"five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
@@ -872,59 +1116,35 @@ func extractMathProblem(text string) ([]int, string) {
 		"eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30,
 		"forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
 		"eighty": 80, "ninety": 90, "hundred": 100,
-	}
-
-	// 操作符关键词
-	operationWords := map[string]string{
-		"plus": "+", "add": "+", "and": "+",
-		"minus": "-", "subtract": "-", "slows": "-", "reduces": "-", "decreases": "-",
-		"times": "*", "multiplied": "*", "multiply": "*", "exerts": "*", "at": "*",
-		"divided": "/", "divide": "/", "by": "/",
+		// 拼写变体（Moltbook 挑战中出现的）
+		"fivee": 5, "sixten": 16, "sixtee": 16, "sevenn": 7,
+		"threee": 3, "fourr": 4, "onee": 1, "twoo": 2,
+		"eightt": 8, "ninee": 9, "tenn": 10,
 	}
 
 	var numbers []int
-	var operation string
 
-	// 合并连续的数字单词（如 "twenty two" -> 22）
+	// 遍历并合并连续的数字单词
 	for i := 0; i < len(words); i++ {
 		word := words[i]
 
-		// 检查是否是操作符
-		if op, ok := operationWords[word]; ok {
-			if operation == "" {
-				operation = op
-			}
+		n, ok := numberWords[word]
+		if !ok {
 			continue
 		}
 
-		// 检查是否是数字单词
-		if n, ok := numberWords[word]; ok {
-			// 检查下一个词是否也是数字（十位 + 个位）
-			if i+1 < len(words) {
-				if nextN, ok := numberWords[words[i+1]]; ok && nextN < 10 && n%10 == 0 {
-					numbers = append(numbers, n+nextN)
-					i++ // 跳过下一个词
-					continue
-				}
+		// 检查下一个词是否是个位数（用于组合如 "twenty three" -> 23）
+		if i+1 < len(words) {
+			if nextN, ok := numberWords[words[i+1]]; ok && nextN < 10 && n%10 == 0 {
+				numbers = append(numbers, n+nextN)
+				i++ // 跳过下一个词
+				continue
 			}
-			numbers = append(numbers, n)
 		}
+		numbers = append(numbers, n)
 	}
 
-	// 如果没有找到明确的操作符，尝试从上下文推断
-	if operation == "" && len(numbers) >= 2 {
-		// 检查是否包含特定的操作词
-		textLower := strings.ToLower(text)
-		if strings.Contains(textLower, "torque") || strings.Contains(textLower, "force") || strings.Contains(textLower, "lever") {
-			operation = "*" // 物理问题通常是 F * d
-		} else if strings.Contains(textLower, "slows") || strings.Contains(textLower, "reduces") {
-			operation = "-"
-		} else if strings.Contains(textLower, "total") || strings.Contains(textLower, "sum") {
-			operation = "+"
-		}
-	}
-
-	return numbers, operation
+	return numbers
 }
 
 // IsDangerous 返回是否为危险操作
