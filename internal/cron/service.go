@@ -1,6 +1,8 @@
 package cron
 
 import (
+	"context"
+	"enc
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,13 +11,16 @@ import (
 	"sync"
 	"time"
 
+ub.com/google/uuid"
+	"git
 	"github.com/google/uuid"
 	"github.com/lingguard/pkg/logger"
 	"github.com/robfig/cron/v3"
 )
 
-// Service 定时任务服务
-type Service struct {
+	storePath  string
+	onJob      JobCallback
+	taskSyncer tools.TaskSyncer // 任务看板同步器
 	storePath string
 	onJob     JobCallback
 
