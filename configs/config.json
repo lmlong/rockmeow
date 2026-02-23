@@ -124,5 +124,16 @@
   "cron": {
     "enabled": true,
     "storePath": "~/.lingguard/cron/jobs.json"
+  },
+  "webui": {
+    "enabled": true,
+    "port": 18989,
+    "host": "127.0.0.1",
+    "taskboard": {
+      "dbPath": "~/.lingguard/webui/taskboard.db",
+      "trackUserRequests": true,
+      "syncSubagent": true,
+      "syncCron": true
+    }
   }
 }

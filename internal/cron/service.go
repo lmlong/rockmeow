@@ -18,6 +18,7 @@ import (
 type Service struct {
 	storePath string
 	onJob     JobCallback
+	onEvent   EventCallback // 事件回调（用于任务看板同步）
 
 	mu       sync.RWMutex
 	store    *CronStore
@@ -33,6 +34,11 @@ func NewService(storePath string, onJob JobCallback) *Service {
 		onJob:     onJob,
 		stopChan:  make(chan struct{}),
 	}
+}
+
+// SetEventCallback 设置事件回调
+func (s *Service) SetEventCallback(callback EventCallback) {
+	s.onEvent = callback
 }
 
 // Start 启动定时任务服务
@@ -257,6 +263,11 @@ func (s *Service) executeJob(job *CronJob) {
 	startMs := nowMs()
 	logger.Info("Cron executing job", "name", job.Name, "id", job.ID)
 
+	// 执行前回调
+	if s.onEvent != nil {
+		s.onEvent(job, "before", "", "")
+	}
+
 	var response string
 	var err error
 
@@ -273,6 +284,15 @@ func (s *Service) executeJob(job *CronJob) {
 		job.State.LastError = ""
 		job.State.LastResponse = response
 		logger.Info("Cron job completed", "name", job.Name)
+	}
+
+	// 执行后回调
+	if s.onEvent != nil {
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+		s.onEvent(job, "after", response, errMsg)
 	}
 
 	job.State.LastRunAtMs = startMs
@@ -386,6 +406,12 @@ func (s *Service) AddJob(name string, schedule CronSchedule, message string, opt
 	s.armTimer()
 
 	logger.Info("Cron added job", "name", name, "id", job.ID)
+
+	// 触发创建事件回调
+	if s.onEvent != nil {
+		s.onEvent(job, "created", "", "")
+	}
+
 	return job, nil
 }
 
@@ -417,6 +443,15 @@ func (s *Service) RemoveJob(id string) bool {
 		return false
 	}
 
+	// 先找到要删除的任务，用于触发回调
+	var jobToRemove *CronJob
+	for _, job := range s.store.Jobs {
+		if job.ID == id {
+			jobToRemove = job
+			break
+		}
+	}
+
 	before := len(s.store.Jobs)
 	s.store.Jobs = removeJob(s.store.Jobs, id)
 	removed := len(s.store.Jobs) < before
@@ -425,6 +460,11 @@ func (s *Service) RemoveJob(id string) bool {
 		s.saveStore()
 		s.armTimer()
 		logger.Info("Cron removed job", "id", id)
+
+		// 触发删除事件回调
+		if s.onEvent != nil && jobToRemove != nil {
+			s.onEvent(jobToRemove, "removed", "", "")
+		}
 	}
 
 	return removed

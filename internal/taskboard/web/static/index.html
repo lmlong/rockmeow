@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LingGuard - 任务看板</title>
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <!-- Element Plus -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://unpkg.com/element-plus"></script>
+    <!-- Element Plus Icons -->
+    <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f7fa;
+        }
+        .app-container {
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .stats-bar {
+            background: white;
+            padding: 12px 24px;
+            display: flex;
+            gap: 24px;
+            border-bottom: 1px solid #ebeef5;
+        }
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .stat-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: #409eff;
+        }
+        .stat-label {
+            color: #909399;
+            font-size: 14px;
+        }
+        .filter-bar {
+            background: white;
+            padding: 16px 24px;
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            border-bottom: 1px solid #ebeef5;
+        }
+        .board-container {
+            display: flex;
+            gap: 16px;
+            padding: 16px;
+            overflow-x: auto;
+            min-height: calc(100vh - 180px);
+        }
+        .column {
+            flex: 0 0 300px;
+            background: #f0f2f5;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - 220px);
+        }
+        .column-header {
+            padding: 12px 16px;
+            background: white;
+            border-radius: 8px 8px 0 0;
+            border-bottom: 1px solid #ebeef5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .column-title {
+            font-weight: 600;
+            color: #303133;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .column-count {
+            background: #909399;
+            color: white;
+            border-radius: 10px;
+            padding: 2px 8px;
+            font-size: 12px;
+        }
+        .column-content {
+            padding: 8px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .task-card {
+            background: white;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid #ebeef5;
+        }
+        .task-card:hover {
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            transform: translateY(-1px);
+        }
+        .task-title {
+            font-weight: 500;
+            color: #303133;
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+        .task-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+        .task-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #909399;
+        }
+        .task-time {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .source-tag {
+            font-size: 11px;
+        }
+        .source-user { background: #ecf5ff; color: #409eff; }
+        .source-subagent { background: #fef0f0; color: #f56c6c; }
+        .source-cron { background: #fdf6ec; color: #e6a23c; }
+        .source-manual { background: #f0f9eb; color: #67c23a; }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-pending { background: #909399; }
+        .status-running { background: #409eff; animation: pulse 1.5s infinite; }
+        .status-completed { background: #67c23a; }
+        .status-failed { background: #f56c6c; }
+        .status-cancelled { background: #909399; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .dialog-footer {
+            text-align: right;
+        }
+        .empty-column {
+            text-align: center;
+            color: #909399;
+            padding: 24px;
+        }
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        .connected { color: #67c23a; }
+        .disconnected { color: #f56c6c; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="app-container">
+            <!-- Header -->
+            <div class="header">
+                <h1>🛡️ LingGuard 任务看板</h1>
+                <div class="header-actions">
+                    <div class="connection-status" :class="connected ? 'connected' : 'disconnected'">
+                        <span class="status-dot" :class="connected ? 'status-completed' : 'status-failed'"></span>
+                        {{ connected ? '已连接' : '未连接' }}
+                    </div>
+                    <el-button type="primary" @click="showCreateDialog = true">
+                        <el-icon><plus /></el-icon>
+                        新建任务
+                    </el-button>
+                </div>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <span class="stat-value">{{ stats.total || 0 }}</span>
+                    <span class="stat-label">总任务</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" style="color: #409eff;">{{ stats.byStatus?.running || 0 }}</span>
+                    <span class="stat-label">进行中</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" style="color: #67c23a;">{{ stats.byStatus?.completed || 0 }}</span>
+                    <span class="stat-label">已完成</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" style="color: #f56c6c;">{{ stats.byStatus?.failed || 0 }}</span>
+                    <span class="stat-label">失败</span>
+                </div>
+            </div>
+
+            <!-- Filter Bar -->
+            <div class="filter-bar">
+                <el-select v-model="filterSource" placeholder="来源" clearable style="width: 120px" @change="loadBoard">
+                    <el-option label="用户请求" value="user" />
+                    <el-option label="子代理" value="subagent" />
+                    <el-option label="定时任务" value="cron" />
+                    <el-option label="手动创建" value="manual" />
+                </el-select>
+                <el-input v-model="searchText" placeholder="搜索任务..." style="width: 200px" clearable>
+                    <template #prefix>
+                        <el-icon><search /></el-icon>
+                    </template>
+                </el-input>
+                <el-button @click="loadBoard">
+                    <el-icon><refresh /></el-icon>
+                    刷新
+                </el-button>
+            </div>
+
+            <!-- Board -->
+            <div class="board-container" v-loading="loading">
+                <!-- Backlog -->
+                <div class="column">
+                    <div class="column-header">
+                        <span class="column-title">
+                            📋 待定
+                            <span class="column-count">{{ board.backlog?.length || 0 }}</span>
+                        </span>
+                    </div>
+                    <div class="column-content">
+                        <div v-if="!board.backlog?.length" class="empty-column">暂无任务</div>
+                        <div v-for="task in filterTasks(board.backlog)" :key="task.id" class="task-card" @click="showTaskDetail(task)">
+                            <div class="task-title">{{ task.title }}</div>
+                            <div class="task-meta">
+                                <el-tag size="small" :class="'source-tag source-' + task.source">{{ getSourceLabel(task.source) }}</el-tag>
+                                <el-tag v-if="task.priority === 'urgent'" size="small" type="danger">紧急</el-tag>
+                            </div>
+                            <div class="task-footer">
+                                <span>{{ task.assignee || '未分配' }}</span>
+                                <span class="task-time">{{ formatTime(task.createdAt) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Todo -->
+                <div class="column">
+                    <div class="column-header">
+                        <span class="column-title">
+                            📝 待办
+                            <span class="column-count">{{ board.todo?.length || 0 }}</span>
+                        </span>
+                    </div>
+                    <div class="column-content">
+                        <div v-if="!board.todo?.length" class="empty-column">暂无任务</div>
+                        <div v-for="task in filterTasks(board.todo)" :key="task.id" class="task-card" @click="showTaskDetail(task)">
+                            <div class="task-title">{{ task.title }}</div>
+                            <div class="task-meta">
+                                <el-tag size="small" :class="'source-tag source-' + task.source">{{ getSourceLabel(task.source) }}</el-tag>
+                                <el-tag v-if="task.priority === 'urgent'" size="small" type="danger">紧急</el-tag>
+                            </div>
+                            <div class="task-footer">
+                                <span>{{ task.assignee || '未分配' }}</span>
+                                <span class="task-time">{{ formatTime(task.createdAt) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- In Progress -->
+                <div class="column">
+                    <div class="column-header">
+                        <span class="column-title">
+                            🔄 进行中
+                            <span class="column-count">{{ board.inProgress?.length || 0 }}</span>
+                        </span>
+                    </div>
+                    <div class="column-content">
+                        <div v-if="!board.inProgress?.length" class="empty-column">暂无任务</div>
+                        <div v-for="task in filterTasks(board.inProgress)" :key="task.id" class="task-card" @click="showTaskDetail(task)">
+                            <div class="task-title">
+                                <span class="status-dot status-running"></span>
+                                {{ task.title }}
+                            </div>
+                            <div class="task-meta">
+                                <el-tag size="small" :class="'source-tag source-' + task.source">{{ getSourceLabel(task.source) }}</el-tag>
+                                <el-tag v-if="task.priority === 'urgent'" size="small" type="danger">紧急</el-tag>
+                            </div>
+                            <div class="task-footer">
+                                <span>{{ task.assignee || '未分配' }}</span>
+                                <span class="task-time">{{ formatTime(task.startedAt) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Done -->
+                <div class="column">
+                    <div class="column-header">
+                        <span class="column-title">
+                            ✅ 已完成
+                            <span class="column-count">{{ board.done?.length || 0 }}</span>
+                        </span>
+                    </div>
+                    <div class="column-content">
+                        <div v-if="!board.done?.length" class="empty-column">暂无任务</div>
+                        <div v-for="task in filterTasks(board.done)" :key="task.id" class="task-card" @click="showTaskDetail(task)">
+                            <div class="task-title" :style="{ textDecoration: task.status === 'cancelled' ? 'line-through' : 'none', opacity: 0.7 }">
+                                {{ task.title }}
+                            </div>
+                            <div class="task-meta">
+                                <el-tag size="small" :class="'source-tag source-' + task.source">{{ getSourceLabel(task.source) }}</el-tag>
+                                <el-tag v-if="task.status === 'failed'" size="small" type="danger">失败</el-tag>
+                                <el-tag v-if="task.status === 'cancelled'" size="small" type="info">已取消</el-tag>
+                            </div>
+                            <div class="task-footer">
+                                <span>{{ task.assignee || '未分配' }}</span>
+                                <span class="task-time">{{ formatTime(task.completedAt) }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create Task Dialog -->
+        <el-dialog v-model="showCreateDialog" title="新建任务" width="500px">
+            <el-form :model="newTask" label-width="80px">
+                <el-form-item label="标题" required>
+                    <el-input v-model="newTask.title" placeholder="请输入任务标题" />
+                </el-form-item>
+                <el-form-item label="描述">
+                    <el-input v-model="newTask.description" type="textarea" :rows="3" placeholder="请输入任务描述" />
+                </el-form-item>
+                <el-form-item label="优先级">
+                    <el-select v-model="newTask.priority" style="width: 100%">
+                        <el-option label="低" value="low" />
+                        <el-option label="中" value="medium" />
+                        <el-option label="高" value="high" />
+                        <el-option label="紧急" value="urgent" />
+                    </el-select>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <span class="dialog-footer">
+                    <el-button @click="showCreateDialog = false">取消</el-button>
+                    <el-button type="primary" @click="createTask">创建</el-button>
+                </span>
+            </template>
+        </el-dialog>
+
+        <!-- Task Detail Dialog -->
+        <el-dialog v-model="showDetailDialog" title="任务详情" width="600px">
+            <template v-if="selectedTask">
+                <el-descriptions :column="2" border>
+                    <el-descriptions-item label="ID">{{ selectedTask.id }}</el-descriptions-item>
+                    <el-descriptions-item label="状态">
+                        <el-tag :type="getStatusType(selectedTask.status)">{{ getStatusLabel(selectedTask.status) }}</el-tag>
+                    </el-descriptions-item>
+                    <el-descriptions-item label="标题" :span="2">{{ selectedTask.title }}</el-descriptions-item>
+                    <el-descriptions-item label="描述" :span="2">{{ selectedTask.description || '无' }}</el-descriptions-item>
+                    <el-descriptions-item label="来源">{{ getSourceLabel(selectedTask.source) }}</el-descriptions-item>
+                    <el-descriptions-item label="优先级">{{ getPriorityLabel(selectedTask.priority) }}</el-descriptions-item>
+                    <el-descriptions-item label="分配给">{{ selectedTask.assignee || '未分配' }}</el-descriptions-item>
+                    <el-descriptions-item label="会话ID">{{ selectedTask.sessionId || '无' }}</el-descriptions-item>
+                    <el-descriptions-item label="创建时间">{{ formatTimeFull(selectedTask.createdAt) }}</el-descriptions-item>
+                    <el-descriptions-item label="开始时间">{{ selectedTask.startedAt ? formatTimeFull(selectedTask.startedAt) : '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="完成时间">{{ selectedTask.completedAt ? formatTimeFull(selectedTask.completedAt) : '-' }}</el-descriptions-item>
+                    <el-descriptions-item v-if="selectedTask.result" label="结果" :span="2">
+                        <el-input type="textarea" :rows="3" :model-value="selectedTask.result" readonly />
+                    </el-descriptions-item>
+                    <el-descriptions-item v-if="selectedTask.error" label="错误" :span="2">
+                        <el-input type="textarea" :rows="3" :model-value="selectedTask.error" readonly />
+                    </el-descriptions-item>
+                </el-descriptions>
+            </template>
+            <template #footer>
+                <span class="dialog-footer">
+                    <el-button v-if="selectedTask?.status === 'pending'" type="primary" @click="startTask(selectedTask)">开始</el-button>
+                    <el-button v-if="selectedTask?.status === 'running'" type="success" @click="completeTask(selectedTask)">完成</el-button>
+                    <el-button v-if="selectedTask?.status === 'running'" type="danger" @click="failTask(selectedTask)">失败</el-button>
+                    <el-button v-if="['pending', 'todo'].includes(selectedTask?.status)" type="warning" @click="cancelTask(selectedTask)">取消</el-button>
+                    <el-button type="danger" @click="deleteTask(selectedTask)">删除</el-button>
+                    <el-button @click="showDetailDialog = false">关闭</el-button>
+                </span>
+            </template>
+        </el-dialog>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted, onUnmounted } = Vue;
+        const { ElMessage } = ElementPlus;
+
+        const app = createApp({
+            setup() {
+                const loading = ref(false);
+                const connected = ref(false);
+                const board = reactive({
+                    backlog: [],
+                    todo: [],
+                    inProgress: [],
+                    done: []
+                });
+                const stats = reactive({
+                    total: 0,
+                    byStatus: {},
+                    bySource: {},
+                    byColumn: {}
+                });
+                const filterSource = ref('');
+                const searchText = ref('');
+                const showCreateDialog = ref(false);
+                const showDetailDialog = ref(false);
+                const selectedTask = ref(null);
+                const newTask = reactive({
+                    title: '',
+                    description: '',
+                    priority: 'medium'
+                });
+
+                let eventSource = null;
+
+                // API base URL
+                const apiBase = '';
+
+                // Load board data
+                const loadBoard = async () => {
+                    loading.value = true;
+                    try {
+                        const res = await fetch(`${apiBase}/api/board`);
+                        const data = await res.json();
+                        board.backlog = data.backlog || [];
+                        board.todo = data.todo || [];
+                        board.inProgress = data.inProgress || [];
+                        board.done = data.done || [];
+                    } catch (e) {
+                        ElMessage.error('加载看板失败: ' + e.message);
+                    }
+                    loading.value = false;
+                };
+
+                // Load stats
+                const loadStats = async () => {
+                    try {
+                        const res = await fetch(`${apiBase}/api/stats`);
+                        const data = await res.json();
+                        Object.assign(stats, data);
+                    } catch (e) {
+                        console.error('Load stats error:', e);
+                    }
+                };
+
+                // Connect SSE
+                const connectSSE = () => {
+                    if (eventSource) {
+                        eventSource.close();
+                    }
+                    eventSource = new EventSource(`${apiBase}/api/events`);
+
+                    eventSource.onopen = () => {
+                        connected.value = true;
+                    };
+
+                    eventSource.onerror = () => {
+                        connected.value = false;
+                        // Reconnect after 3 seconds
+                        setTimeout(connectSSE, 3000);
+                    };
+
+                    eventSource.addEventListener('task', (e) => {
+                        const event = JSON.parse(e.data);
+                        // Refresh board on task events
+                        loadBoard();
+                        loadStats();
+                    });
+                };
+
+                // Create task
+                const createTask = async () => {
+                    if (!newTask.title) {
+                        ElMessage.warning('请输入任务标题');
+                        return;
+                    }
+                    try {
+                        const res = await fetch(`${apiBase}/api/tasks`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(newTask)
+                        });
+                        if (res.ok) {
+                            ElMessage.success('任务创建成功');
+                            showCreateDialog.value = false;
+                            newTask.title = '';
+                            newTask.description = '';
+                            newTask.priority = 'medium';
+                            loadBoard();
+                            loadStats();
+                        } else {
+                            const err = await res.json();
+                            ElMessage.error('创建失败: ' + err.error);
+                        }
+                    } catch (e) {
+                        ElMessage.error('创建失败: ' + e.message);
+                    }
+                };
+
+                // Show task detail
+                const showTaskDetail = (task) => {
+                    selectedTask.value = task;
+                    showDetailDialog.value = true;
+                };
+
+                // Task actions
+                const startTask = async (task) => {
+                    await updateTaskStatus(task.id, 'running');
+                };
+
+                const completeTask = async (task) => {
+                    await updateTaskStatus(task.id, 'completed');
+                };
+
+                const failTask = async (task) => {
+                    await updateTaskStatus(task.id, 'failed');
+                };
+
+                const cancelTask = async (task) => {
+                    await updateTaskStatus(task.id, 'cancelled');
+                };
+
+                const updateTaskStatus = async (taskId, status) => {
+                    try {
+                        const res = await fetch(`${apiBase}/api/tasks/${taskId}/status`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ status })
+                        });
+                        if (res.ok) {
+                            ElMessage.success('状态已更新');
+                            showDetailDialog.value = false;
+                            loadBoard();
+                            loadStats();
+                        } else {
+                            const err = await res.json();
+                            ElMessage.error('更新失败: ' + err.error);
+                        }
+                    } catch (e) {
+                        ElMessage.error('更新失败: ' + e.message);
+                    }
+                };
+
+                const deleteTask = async (task) => {
+                    try {
+                        const res = await fetch(`${apiBase}/api/tasks/${task.id}`, {
+                            method: 'DELETE'
+                        });
+                        if (res.ok) {
+                            ElMessage.success('任务已删除');
+                            showDetailDialog.value = false;
+                            loadBoard();
+                            loadStats();
+                        } else {
+                            const err = await res.json();
+                            ElMessage.error('删除失败: ' + err.error);
+                        }
+                    } catch (e) {
+                        ElMessage.error('删除失败: ' + e.message);
+                    }
+                };
+
+                // Filter tasks
+                const filterTasks = (tasks) => {
+                    if (!tasks) return [];
+                    return tasks.filter(task => {
+                        if (filterSource.value && task.source !== filterSource.value) return false;
+                        if (searchText.value && !task.title.toLowerCase().includes(searchText.value.toLowerCase())) return false;
+                        return true;
+                    });
+                };
+
+                // Formatters
+                const formatTime = (time) => {
+                    if (!time) return '';
+                    const date = new Date(time);
+                    const now = new Date();
+                    const diff = now - date;
+                    if (diff < 60000) return '刚刚';
+                    if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+                    if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+                    return date.toLocaleDateString();
+                };
+
+                const formatTimeFull = (time) => {
+                    if (!time) return '';
+                    return new Date(time).toLocaleString();
+                };
+
+                const getSourceLabel = (source) => {
+                    const labels = {
+                        user: '用户请求',
+                        subagent: '子代理',
+                        cron: '定时任务',
+                        manual: '手动'
+                    };
+                    return labels[source] || source;
+                };
+
+                const getStatusLabel = (status) => {
+                    const labels = {
+                        pending: '待处理',
+                        running: '进行中',
+                        completed: '已完成',
+                        failed: '失败',
+                        cancelled: '已取消'
+                    };
+                    return labels[status] || status;
+                };
+
+                const getStatusType = (status) => {
+                    const types = {
+                        pending: 'info',
+                        running: 'primary',
+                        completed: 'success',
+                        failed: 'danger',
+                        cancelled: 'warning'
+                    };
+                    return types[status] || 'info';
+                };
+
+                const getPriorityLabel = (priority) => {
+                    const labels = {
+                        low: '低',
+                        medium: '中',
+                        high: '高',
+                        urgent: '紧急'
+                    };
+                    return labels[priority] || priority;
+                };
+
+                // Lifecycle
+                onMounted(() => {
+                    loadBoard();
+                    loadStats();
+                    connectSSE();
+                });
+
+                onUnmounted(() => {
+                    if (eventSource) {
+                        eventSource.close();
+                    }
+                });
+
+                return {
+                    loading,
+                    connected,
+                    board,
+                    stats,
+                    filterSource,
+                    searchText,
+                    showCreateDialog,
+                    showDetailDialog,
+                    selectedTask,
+                    newTask,
+                    loadBoard,
+                    createTask,
+                    showTaskDetail,
+                    startTask,
+                    completeTask,
+                    failTask,
+                    cancelTask,
+                    deleteTask,
+                    filterTasks,
+                    formatTime,
+                    formatTimeFull,
+                    getSourceLabel,
+                    getStatusLabel,
+                    getStatusType,
+                    getPriorityLabel
+                };
+            }
+        });
+
+        // Register Element Plus
+        app.use(ElementPlus);
+
+        // Register icons
+        for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+            app.component(key, component);
+        }
+
+        app.mount('#app');
+    </script>
+</body>
+</html>

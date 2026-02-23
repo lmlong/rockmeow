@@ -18,6 +18,7 @@ type Config struct {
 	Speech    *SpeechConfig             `json:"speech,omitempty"`    // 语音识别配置
 	Cron      *CronConfig               `json:"cron,omitempty"`      // 定时任务配置
 	Heartbeat *HeartbeatConfig          `json:"heartbeat,omitempty"` // 心跳服务配置
+	WebUI     *WebUIConfig              `json:"webui,omitempty"`     // Web UI 配置
 }
 
 // ProviderConfig 提供商配置
@@ -251,6 +252,22 @@ type TTSConfig struct {
 	OutputDir string `json:"outputDir,omitempty"` // 输出目录，默认 ~/.lingguard/workspace/generated
 }
 
+// WebUIConfig Web UI 配置（任务看板等功能的 Web 界面）
+type WebUIConfig struct {
+	Enabled   bool             `json:"enabled"`             // 是否启用 Web UI
+	Port      int              `json:"port,omitempty"`      // 端口，默认 8080
+	Host      string           `json:"host,omitempty"`      // 主机，默认 127.0.0.1
+	TaskBoard *TaskBoardConfig `json:"taskboard,omitempty"` // 任务看板配置
+}
+
+// TaskBoardConfig 任务看板功能配置
+type TaskBoardConfig struct {
+	DBPath            string `json:"dbPath,omitempty"`            // 数据库路径，默认 ~/.lingguard/webui/taskboard.db
+	TrackUserRequests bool   `json:"trackUserRequests,omitempty"` // 追踪用户请求，默认 true
+	SyncSubagent      bool   `json:"syncSubagent,omitempty"`      // 同步子代理任务，默认 true
+	SyncCron          bool   `json:"syncCron,omitempty"`          // 同步定时任务，默认 true
+}
+
 // DefaultConfig 默认配置
 func DefaultConfig() *Config {
 	return &Config{
@@ -292,6 +309,17 @@ func DefaultConfig() *Config {
 		Heartbeat: &HeartbeatConfig{
 			Enabled:  true,
 			Interval: 30, // 30 分钟
+		},
+		WebUI: &WebUIConfig{
+			Enabled: true,
+			Port:    18989,
+			Host:    "127.0.0.1",
+			TaskBoard: &TaskBoardConfig{
+				DBPath:            "~/.lingguard/webui/taskboard.db",
+				TrackUserRequests: true,
+				SyncSubagent:      true,
+				SyncCron:          true,
+			},
 		},
 	}
 }

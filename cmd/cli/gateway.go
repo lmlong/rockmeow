@@ -13,6 +13,7 @@ import (
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/internal/cron"
 	"github.com/lingguard/internal/heartbeat"
+	"github.com/lingguard/internal/taskboard"
 	"github.com/lingguard/internal/tools"
 	"github.com/lingguard/pkg/logger"
 	"github.com/lingguard/pkg/utils"
@@ -105,6 +106,72 @@ func runGateway() error {
 		ag.RegisterCronTool(cronWrapper)
 	}
 
+	// 启动 Web UI 和任务看板服务
+	var webUIServer *taskboard.Server
+	var taskboardService *taskboard.Service
+	if cfg.WebUI != nil && cfg.WebUI.Enabled {
+		// 初始化任务看板（只要配置了 taskboard 就启用）
+		if cfg.WebUI.TaskBoard != nil {
+			dbPath := utils.ExpandHome(cfg.WebUI.TaskBoard.DBPath)
+			if dbPath == "" {
+				dbPath = utils.ExpandHome("~/.lingguard/webui/taskboard.db")
+			}
+
+			store, err := taskboard.NewSQLiteStore(dbPath)
+			if err != nil {
+				return fmt.Errorf("create taskboard store: %w", err)
+			}
+
+			taskboardService = taskboard.NewService(store)
+			ag.SetTaskboard(taskboardService)
+			ag.RegisterTaskBoardTool()
+			logger.Info("TaskBoard service initialized", "db", dbPath)
+
+			// 同步定时任务到看板
+			if cfg.WebUI.TaskBoard.SyncCron && cronService != nil {
+				cronAdapter := taskboard.NewCronAdapter(taskboardService)
+
+				// 为现有的定时任务创建看板任务
+				existingJobs := cronService.ListJobs(true)
+				for _, job := range existingJobs {
+					if job.Enabled {
+						cronAdapter.OnCronJobCreated(job)
+					}
+				}
+
+				// 设置事件回调
+				cronService.SetEventCallback(func(job *cron.CronJob, eventType string, result string, errMsg string) {
+					if eventType == "before" {
+						cronAdapter.OnCronJobExecuting(job)
+					} else if eventType == "after" {
+						cronAdapter.OnCronJobCompleted(job, result, errMsg)
+					} else if eventType == "created" {
+						cronAdapter.OnCronJobCreated(job)
+					} else if eventType == "removed" {
+						cronAdapter.OnCronJobRemoved(job)
+					}
+				})
+				logger.Info("Cron to TaskBoard sync enabled")
+			}
+		}
+
+		// 启动 Web UI 服务器
+		host := cfg.WebUI.Host
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		port := cfg.WebUI.Port
+		if port == 0 {
+			port = 8080
+		}
+
+		webUIServer = taskboard.NewServer(host, port, taskboardService)
+		if err := webUIServer.Start(); err != nil {
+			return fmt.Errorf("start web ui server: %w", err)
+		}
+		logger.Info("Web UI server started", "addr", webUIServer.Address())
+	}
+
 	// 启动心跳服务
 	var heartbeatService *heartbeat.Service
 	if cfg.Heartbeat != nil && cfg.Heartbeat.Enabled {
@@ -179,6 +246,9 @@ func runGateway() error {
 		}
 		if heartbeatService != nil {
 			heartbeatService.Stop()
+		}
+		if webUIServer != nil {
+			webUIServer.Stop()
 		}
 		if err := mgr.StopAll(); err != nil {
 			logger.Warn("Error stopping channels", "error", err)

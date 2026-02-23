@@ -88,6 +88,10 @@ type CronStore struct {
 // JobCallback 任务执行回调函数
 type JobCallback func(job *CronJob) (string, error)
 
+// EventCallback 事件回调函数（用于任务看板同步等）
+// eventType: "before", "after"
+type EventCallback func(job *CronJob, eventType string, result string, errMsg string)
+
 // nowMs 获取当前时间戳（毫秒）
 func nowMs() int64 {
 	return time.Now().UnixMilli()

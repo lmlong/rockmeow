@@ -76,6 +76,11 @@ func (s *Subagent) Task() string {
 	return s.task
 }
 
+// Context 返回任务上下文
+func (s *Subagent) Context() string {
+	return s.context
+}
+
 // Status 返回当前状态
 func (s *Subagent) Status() TaskStatus {
 	s.mu.RLock()

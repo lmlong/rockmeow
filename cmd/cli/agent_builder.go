@@ -12,6 +12,7 @@ import (
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/internal/providers"
 	"github.com/lingguard/internal/skills"
+	"github.com/lingguard/internal/taskboard"
 	"github.com/lingguard/internal/tools"
 	"github.com/lingguard/pkg/logger"
 	ttspkg "github.com/lingguard/pkg/tts"
@@ -27,9 +28,11 @@ type AgentBuilder struct {
 	workspaceMgr       *tools.WorkspaceManager
 	mcpManager         *tools.MCPManager
 	cronService        tools.CronService
+	taskboardService   *taskboard.Service
 	enableMCP          bool
 	enableCron         bool
 	enableMessage      bool
+	enableTaskboard    bool
 	channelManager     *tools.MessageTool
 }
 
@@ -132,6 +135,13 @@ func (b *AgentBuilder) EnableCron(service tools.CronService) *AgentBuilder {
 func (b *AgentBuilder) EnableMessage(mgr *tools.MessageTool) *AgentBuilder {
 	b.enableMessage = true
 	b.channelManager = mgr
+	return b
+}
+
+// EnableTaskboard 启用任务看板
+func (b *AgentBuilder) EnableTaskboard(service *taskboard.Service) *AgentBuilder {
+	b.enableTaskboard = true
+	b.taskboardService = service
 	return b
 }
 
@@ -319,6 +329,12 @@ func (b *AgentBuilder) Build() (*agent.Agent, error) {
 
 	if b.enableMessage && b.channelManager != nil {
 		ag.RegisterTool(b.channelManager)
+	}
+
+	// 注册任务看板工具
+	if b.enableTaskboard && b.taskboardService != nil {
+		ag.SetTaskboard(b.taskboardService)
+		ag.RegisterTaskBoardTool()
 	}
 
 	return ag, nil

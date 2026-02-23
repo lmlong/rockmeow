@@ -21,6 +21,7 @@ import (
 	"github.com/lingguard/internal/session"
 	"github.com/lingguard/internal/skills"
 	"github.com/lingguard/internal/subagent"
+	"github.com/lingguard/internal/taskboard"
 	"github.com/lingguard/internal/tools"
 	"github.com/lingguard/pkg/llm"
 	"github.com/lingguard/pkg/logger"
@@ -47,6 +48,7 @@ type Agent struct {
 	memoryStore        *memory.FileStore      // 文件持久化存储（参考 nanobot）
 	hybridStore        *memory.HybridStore    // 混合存储（文件+向量），可选
 	memoryBuilder      *memory.ContextBuilder // 记忆上下文构建器
+	taskboard          *taskboard.Service     // 任务看板服务
 }
 
 // NewAgent 创建新代理
@@ -193,6 +195,23 @@ func (a *Agent) RegisterCronTool(service tools.CronService) {
 	}
 }
 
+// SetTaskboard 设置任务看板服务
+func (a *Agent) SetTaskboard(service *taskboard.Service) {
+	a.taskboard = service
+}
+
+// GetTaskboard 获取任务看板服务
+func (a *Agent) GetTaskboard() *taskboard.Service {
+	return a.taskboard
+}
+
+// RegisterTaskBoardTool 注册任务看板工具
+func (a *Agent) RegisterTaskBoardTool() {
+	if a.taskboard != nil {
+		a.toolRegistry.Register(taskboard.NewTaskBoardTool(a.taskboard))
+	}
+}
+
 // RecordEvent 记录事件到历史（参考 nanobot）
 func (a *Agent) RecordEvent(eventType, summary string, details map[string]string) error {
 	if a.memoryStore == nil {
@@ -299,6 +318,18 @@ func (a *Agent) ProcessMessageStream(ctx context.Context, sessionID, userMessage
 
 // ProcessMessageStreamWithMedia 流式处理带媒体的消息
 func (a *Agent) ProcessMessageStreamWithMedia(ctx context.Context, sessionID, userMessage string, mediaPaths []string, callback stream.StreamCallback) error {
+	// === 任务看板：创建任务 ===
+	var taskID string
+	if a.taskboard != nil {
+		task, err := a.taskboard.CreateTaskFromUserRequest(sessionID, userMessage)
+		if err != nil {
+			logger.Warn("Failed to create task from user request", "error", err)
+		} else {
+			taskID = task.ID
+		}
+	}
+	// ==========================
+
 	// 1. 获取或创建会话
 	s := a.sessions.GetOrCreate(sessionID)
 
@@ -309,9 +340,22 @@ func (a *Agent) ProcessMessageStreamWithMedia(ctx context.Context, sessionID, us
 		// 发送友好提示给用户
 		callback(stream.NewTextEvent("⏳ 正在处理上一条消息，请稍后再试..."))
 		callback(stream.NewDoneEvent())
+		// === 任务看板：标记任务失败 ===
+		if taskID != "" {
+			a.taskboard.FailTask(taskID, "会话忙，请稍后重试")
+		}
+		// ==============================
 		return ErrSessionBusy
 	}
 	defer s.UnlockAfterProcessing()
+
+	// === 任务看板：开始任务 ===
+	if taskID != "" {
+		if err := a.taskboard.StartTask(taskID); err != nil {
+			logger.Warn("Failed to start task", "taskId", taskID, "error", err)
+		}
+	}
+	// ============================
 
 	// 检查是否有多模态内容
 	hasMedia := len(mediaPaths) > 0
@@ -330,6 +374,11 @@ func (a *Agent) ProcessMessageStreamWithMedia(ctx context.Context, sessionID, us
 	messages, err := a.buildContextWithMedia(sessionID, hasMedia)
 	if err != nil {
 		callback(stream.NewErrorEvent(fmt.Errorf("failed to build context: %w", err)))
+		// === 任务看板：标记任务失败 ===
+		if taskID != "" {
+			a.taskboard.FailTask(taskID, err.Error())
+		}
+		// ==============================
 		return err
 	}
 
@@ -341,7 +390,19 @@ func (a *Agent) ProcessMessageStreamWithMedia(ctx context.Context, sessionID, us
 	}
 
 	// 4. 执行流式代理循环
-	return a.runLoopStreamWithProvider(ctx, sessionID, messages, provider, callback)
+	runErr := a.runLoopStreamWithProvider(ctx, sessionID, messages, provider, callback)
+
+	// === 任务看板：完成/失败任务 ===
+	if taskID != "" {
+		if runErr != nil {
+			a.taskboard.FailTask(taskID, runErr.Error())
+		} else {
+			a.taskboard.CompleteTask(taskID, "")
+		}
+	}
+	// ================================
+
+	return runErr
 }
 
 // buildContext 构建上下文
