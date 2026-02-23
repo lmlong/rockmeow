@@ -2,7 +2,6 @@ package cron
 
 import (
 	"context"
-	"enc
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,15 +10,17 @@ import (
 	"sync"
 	"time"
 
-ub.com/google/uuid"
-	"git
 	"github.com/google/uuid"
+	"github.com/lingguard/internal/to
 	"github.com/lingguard/pkg/logger"
 	"github.com/robfig/cron/v3"
 )
 
-	storePath  string
-	onJob      JobCallback
+
+)
+
+// Service 定时任务服务
+type Service struct 
 	taskSyncer tools.TaskSyncer // 任务看板同步器
 	storePath string
 	onJob     JobCallback
@@ -29,11 +30,15 @@ ub.com/google/uuid"
 	timer    *time.Timer
 	running  bool
 	stopChan chan struct{}
-}
+func NewService(storePath string, onJob JobCallback, taskSyncer tools.TaskSyncer) *Service {
+	if taskSyncer == nil {
+		taskSyncer = &tools.NoopTaskSyncer{}
+	}
 
-// NewService 创建定时任务服务
-func NewService(storePath string, onJob JobCallback) *Service {
-	return &Service{
+		storePath:  storePath,
+		onJob:      onJob,
+		taskSyncer: taskSyncer,
+		stopChan:   make(chan struct{}),
 		storePath: storePath,
 		onJob:     onJob,
 		stopChan:  make(chan struct{}),
