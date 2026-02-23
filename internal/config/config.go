@@ -146,15 +146,6 @@ type ToolsConfig struct {
 	TTS *TTSConfig `json:"tts,omitempty"` // 语音合成配置
 	// Moltbook - AI 社交网络
 	Moltbook *MoltbookConfig `json:"moltbook,omitempty"` // Moltbook 配置
-	// TasksBoard - 任务看板
-	TasksBoard *TasksBoardConfig `json:"tasksBoard,omitempty"` // 任务看板配置
-}
-
-// TasksBoardConfig 任务看板配置
-type TasksBoardConfig struct {
-	Enabled bool   `json:"enabled"`          // 是否启用任务看板
-	URL     string `json:"url,omitempty"`    // 看板 API 地址，如 http://localhost:3000/api/tasks
-	APIKey  string `json:"apiKey,omitempty"` // API Key（可选）
 }
 
 // ClawHubConfig ClawHub 技能仓库配置

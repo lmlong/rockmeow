@@ -180,13 +180,6 @@
       "_note": "apiToken 用于自动登录，从 https://clawhub.ai 获取",
       "enabled": true,
       "apiToken": "clh_xxxxxxxxxxxx"
-    },
-    "tasksBoard": {
-      "_comment": "任务看板配置 - 同步 AI 任务到可视化看板",
-      "_docs": "https://github.com/lingguard/tasks-board",
-      "enabled": true,
-      "url": "http://localhost:3000/api/tasks",
-      "apiKey": ""
     }
   },
 
