@@ -98,6 +98,11 @@
     "clawhub": {
       "enabled": true,
       "apiToken": "clh_xxxxxxxxxxxx"
+    },
+    "tasksBoard": {
+      "enabled": true,
+      "url": "http://localhost:3000/api/tasks",
+      "apiKey": "dc77d6eff5c18e9fa5fb8e286899787fbbae169b7d2c305cc2d9e6be22a295de"
     }
   },
   "storage": {

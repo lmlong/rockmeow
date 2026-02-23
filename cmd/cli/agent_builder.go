@@ -312,6 +312,15 @@ func (b *AgentBuilder) Build() (*agent.Agent, error) {
 		logger.Info("Moltbook tool enabled", "agentName", b.cfg.Tools.Moltbook.AgentName)
 	}
 
+	// 注册任务看板工具
+	if b.cfg.Tools.TasksBoard != nil && b.cfg.Tools.TasksBoard.Enabled {
+		ag.RegisterTool(tools.NewTasksBoardTool(&tools.TasksBoardConfig{
+			URL:    b.cfg.Tools.TasksBoard.URL,
+			APIKey: b.cfg.Tools.TasksBoard.APIKey,
+		}))
+		logger.Info("TasksBoard tool enabled", "url", b.cfg.Tools.TasksBoard.URL)
+	}
+
 	// 注册可选工具
 	if b.enableCron && b.cronService != nil {
 		ag.RegisterCronTool(b.cronService)
