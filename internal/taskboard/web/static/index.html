@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LingGuard - 任务看板</title>
+    <title>LingGuard - 定时任务看板</title>
     <!-- Vue 3 -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <!-- Element Plus -->
@@ -63,28 +63,20 @@
             color: #909399;
             font-size: 14px;
         }
-        .filter-bar {
-            background: white;
-            padding: 16px 24px;
-            display: flex;
-            gap: 16px;
-            align-items: center;
-            border-bottom: 1px solid #ebeef5;
-        }
         .board-container {
             display: flex;
             gap: 16px;
             padding: 16px;
             overflow-x: auto;
-            min-height: calc(100vh - 180px);
+            min-height: calc(100vh - 140px);
         }
         .column {
-            flex: 0 0 300px;
+            flex: 1;
             background: #f0f2f5;
             border-radius: 8px;
             display: flex;
             flex-direction: column;
-            max-height: calc(100vh - 220px);
+            max-height: calc(100vh - 180px);
         }
         .column-header {
             padding: 12px 16px;
@@ -127,11 +119,17 @@
             box-shadow: 0 2px 12px rgba(0,0,0,0.1);
             transform: translateY(-1px);
         }
+        .task-card.disabled {
+            opacity: 0.6;
+        }
         .task-title {
             font-weight: 500;
             color: #303133;
             margin-bottom: 8px;
             word-break: break-word;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .task-meta {
             display: flex;
@@ -139,42 +137,40 @@
             gap: 6px;
             margin-bottom: 8px;
         }
+        .task-info {
+            font-size: 12px;
+            color: #606266;
+            margin-bottom: 4px;
+        }
         .task-footer {
             display: flex;
             justify-content: space-between;
             align-items: center;
             font-size: 12px;
             color: #909399;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #f0f0f0;
         }
-        .task-time {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        .source-tag {
+        .schedule-badge {
             font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
         }
-        .source-user { background: #ecf5ff; color: #409eff; }
-        .source-subagent { background: #fef0f0; color: #f56c6c; }
-        .source-cron { background: #fdf6ec; color: #e6a23c; }
-        .source-manual { background: #f0f9eb; color: #67c23a; }
+        .schedule-onetime { background: #ecf5ff; color: #409eff; }
+        .schedule-recurring { background: #fdf6ec; color: #e6a23c; }
         .status-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
             display: inline-block;
         }
-        .status-pending { background: #909399; }
         .status-running { background: #409eff; animation: pulse 1.5s infinite; }
         .status-completed { background: #67c23a; }
         .status-failed { background: #f56c6c; }
-        .status-cancelled { background: #909399; }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
-        }
-        .dialog-footer {
-            text-align: right;
         }
         .empty-column {
             text-align: center;
@@ -189,6 +185,20 @@
         }
         .connected { color: #67c23a; }
         .disconnected { color: #f56c6c; }
+        .next-run {
+            color: #409eff;
+            font-weight: 500;
+        }
+        .last-run {
+            color: #909399;
+        }
+        .execution-count {
+            background: #f0f9eb;
+            color: #67c23a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
@@ -196,15 +206,15 @@
         <div class="app-container">
             <!-- Header -->
             <div class="header">
-                <h1>🛡️ LingGuard 任务看板</h1>
+                <h1>⏰ LingGuard 定时任务看板</h1>
                 <div class="header-actions">
                     <div class="connection-status" :class="connected ? 'connected' : 'disconnected'">
                         <span class="status-dot" :class="connected ? 'status-completed' : 'status-failed'"></span>
                         {{ connected ? '已连接' : '未连接' }}
                     </div>
-                    <el-button type="primary" @click="showCreateDialog = true">
-                        <el-icon><plus /></el-icon>
-                        新建任务
+                    <el-button @click="loadBoard">
+                        <el-icon><refresh /></el-icon>
+                        刷新
                     </el-button>
                 </div>
             </div>
@@ -216,110 +226,59 @@
                     <span class="stat-label">总任务</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-value" style="color: #409eff;">{{ stats.byStatus?.running || 0 }}</span>
+                    <span class="stat-value" style="color: #409eff;">{{ inProgressTasks.length }}</span>
                     <span class="stat-label">进行中</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-value" style="color: #67c23a;">{{ stats.byStatus?.completed || 0 }}</span>
+                    <span class="stat-value" style="color: #67c23a;">{{ doneTasks.length }}</span>
                     <span class="stat-label">已完成</span>
                 </div>
-                <div class="stat-item">
-                    <span class="stat-value" style="color: #f56c6c;">{{ stats.byStatus?.failed || 0 }}</span>
-                    <span class="stat-label">失败</span>
-                </div>
-            </div>
-
-            <!-- Filter Bar -->
-            <div class="filter-bar">
-                <el-select v-model="filterSource" placeholder="来源" clearable style="width: 120px" @change="loadBoard">
-                    <el-option label="用户请求" value="user" />
-                    <el-option label="子代理" value="subagent" />
-                    <el-option label="定时任务" value="cron" />
-                    <el-option label="手动创建" value="manual" />
-                </el-select>
-                <el-input v-model="searchText" placeholder="搜索任务..." style="width: 200px" clearable>
-                    <template #prefix>
-                        <el-icon><search /></el-icon>
-                    </template>
-                </el-input>
-                <el-button @click="loadBoard">
-                    <el-icon><refresh /></el-icon>
-                    刷新
-                </el-button>
             </div>
 
             <!-- Board -->
             <div class="board-container" v-loading="loading">
-                <!-- Backlog -->
-                <div class="column">
-                    <div class="column-header">
-                        <span class="column-title">
-                            📋 待定
-                            <span class="column-count">{{ board.backlog?.length || 0 }}</span>
-                        </span>
-                    </div>
-                    <div class="column-content">
-                        <div v-if="!board.backlog?.length" class="empty-column">暂无任务</div>
-                        <div v-for="task in filterTasks(board.backlog)" :key="task.id" class="task-card" @click="showTaskDetail(task)">
-                            <div class="task-title">{{ task.title }}</div>
-                            <div class="task-meta">
-                                <el-tag size="small" :class="'source-tag source-' + task.source">{{ getSourceLabel(task.source) }}</el-tag>
-                                <el-tag v-if="task.priority === 'urgent'" size="small" type="danger">紧急</el-tag>
-                            </div>
-                            <div class="task-footer">
-                                <span>{{ task.assignee || '未分配' }}</span>
-                                <span class="task-time">{{ formatTime(task.createdAt) }}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Todo -->
-                <div class="column">
-                    <div class="column-header">
-                        <span class="column-title">
-                            📝 待办
-                            <span class="column-count">{{ board.todo?.length || 0 }}</span>
-                        </span>
-                    </div>
-                    <div class="column-content">
-                        <div v-if="!board.todo?.length" class="empty-column">暂无任务</div>
-                        <div v-for="task in filterTasks(board.todo)" :key="task.id" class="task-card" @click="showTaskDetail(task)">
-                            <div class="task-title">{{ task.title }}</div>
-                            <div class="task-meta">
-                                <el-tag size="small" :class="'source-tag source-' + task.source">{{ getSourceLabel(task.source) }}</el-tag>
-                                <el-tag v-if="task.priority === 'urgent'" size="small" type="danger">紧急</el-tag>
-                            </div>
-                            <div class="task-footer">
-                                <span>{{ task.assignee || '未分配' }}</span>
-                                <span class="task-time">{{ formatTime(task.createdAt) }}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- In Progress -->
                 <div class="column">
                     <div class="column-header">
                         <span class="column-title">
                             🔄 进行中
-                            <span class="column-count">{{ board.inProgress?.length || 0 }}</span>
+                            <span class="column-count">{{ inProgressTasks.length }}</span>
                         </span>
                     </div>
                     <div class="column-content">
-                        <div v-if="!board.inProgress?.length" class="empty-column">暂无任务</div>
-                        <div v-for="task in filterTasks(board.inProgress)" :key="task.id" class="task-card" @click="showTaskDetail(task)">
+                        <div v-if="!inProgressTasks.length" class="empty-column">暂无定时任务</div>
+                        <div v-for="task in inProgressTasks" :key="task.id"
+                             class="task-card"
+                             :class="{ disabled: task.metadata?.enabled === false }"
+                             @click="showTaskDetail(task)">
                             <div class="task-title">
                                 <span class="status-dot status-running"></span>
                                 {{ task.title }}
+                                <span v-if="task.metadata?.enabled === false" style="color: #909399;">（已禁用）</span>
                             </div>
                             <div class="task-meta">
-                                <el-tag size="small" :class="'source-tag source-' + task.source">{{ getSourceLabel(task.source) }}</el-tag>
-                                <el-tag v-if="task.priority === 'urgent'" size="small" type="danger">紧急</el-tag>
+                                <span class="schedule-badge" :class="task.metadata?.scheduleType === '单次' ? 'schedule-onetime' : 'schedule-recurring'">
+                                    {{ task.metadata?.scheduleType || '未知' }}
+                                </span>
+                                <span class="execution-count" v-if="task.metadata?.executionCount > 0">
+                                    已执行 {{ task.metadata.executionCount }} 次
+                                </span>
+                            </div>
+                            <div class="task-info" v-if="task.metadata?.scheduleExpr">
+                                📅 {{ task.metadata.scheduleExpr }}
+                            </div>
+                            <div class="task-info next-run" v-if="task.metadata?.nextRunAtMs > 0">
+                                ⏭️ 下次: {{ formatTime(task.metadata.nextRunAtMs) }}
                             </div>
                             <div class="task-footer">
-                                <span>{{ task.assignee || '未分配' }}</span>
-                                <span class="task-time">{{ formatTime(task.startedAt) }}</span>
+                                <span class="last-run" v-if="task.metadata?.lastRunAtMs > 0">
+                                    上次: {{ formatTime(task.metadata.lastRunAtMs) }}
+                                    <el-tag v-if="task.metadata?.lastStatus" size="small"
+                                            :type="task.metadata.lastStatus === 'ok' ? 'success' : 'danger'">
+                                        {{ task.metadata.lastStatus }}
+                                    </el-tag>
+                                </span>
+                                <span v-else>尚未执行</span>
                             </div>
                         </div>
                     </div>
@@ -330,23 +289,31 @@
                     <div class="column-header">
                         <span class="column-title">
                             ✅ 已完成
-                            <span class="column-count">{{ board.done?.length || 0 }}</span>
+                            <span class="column-count">{{ doneTasks.length }}</span>
                         </span>
                     </div>
                     <div class="column-content">
-                        <div v-if="!board.done?.length" class="empty-column">暂无任务</div>
-                        <div v-for="task in filterTasks(board.done)" :key="task.id" class="task-card" @click="showTaskDetail(task)">
-                            <div class="task-title" :style="{ textDecoration: task.status === 'cancelled' ? 'line-through' : 'none', opacity: 0.7 }">
-                                {{ task.title }}
+                        <div v-if="!doneTasks.length" class="empty-column">暂无已完成的任务</div>
+                        <div v-for="task in doneTasks" :key="task.id" class="task-card" @click="showTaskDetail(task)">
+                            <div class="task-title" :style="{ opacity: 0.8 }">
+                                <span class="status-dot" :class="task.status === 'failed' ? 'status-failed' : 'status-completed'"></span>
+                                <span :style="{ textDecoration: task.status === 'cancelled' ? 'line-through' : 'none' }">
+                                    {{ task.title }}
+                                </span>
                             </div>
                             <div class="task-meta">
-                                <el-tag size="small" :class="'source-tag source-' + task.source">{{ getSourceLabel(task.source) }}</el-tag>
+                                <span class="schedule-badge schedule-onetime">单次</span>
                                 <el-tag v-if="task.status === 'failed'" size="small" type="danger">失败</el-tag>
                                 <el-tag v-if="task.status === 'cancelled'" size="small" type="info">已取消</el-tag>
                             </div>
+                            <div class="task-info" v-if="task.result">
+                                📝 {{ truncate(task.result, 50) }}
+                            </div>
+                            <div class="task-info" v-if="task.error" style="color: #f56c6c;">
+                                ❌ {{ truncate(task.error, 50) }}
+                            </div>
                             <div class="task-footer">
-                                <span>{{ task.assignee || '未分配' }}</span>
-                                <span class="task-time">{{ formatTime(task.completedAt) }}</span>
+                                <span>{{ formatTimeFull(task.completedAt) }}</span>
                             </div>
                         </div>
                     </div>
@@ -354,64 +321,45 @@
             </div>
         </div>
 
-        <!-- Create Task Dialog -->
-        <el-dialog v-model="showCreateDialog" title="新建任务" width="500px">
-            <el-form :model="newTask" label-width="80px">
-                <el-form-item label="标题" required>
-                    <el-input v-model="newTask.title" placeholder="请输入任务标题" />
-                </el-form-item>
-                <el-form-item label="描述">
-                    <el-input v-model="newTask.description" type="textarea" :rows="3" placeholder="请输入任务描述" />
-                </el-form-item>
-                <el-form-item label="优先级">
-                    <el-select v-model="newTask.priority" style="width: 100%">
-                        <el-option label="低" value="low" />
-                        <el-option label="中" value="medium" />
-                        <el-option label="高" value="high" />
-                        <el-option label="紧急" value="urgent" />
-                    </el-select>
-                </el-form-item>
-            </el-form>
-            <template #footer>
-                <span class="dialog-footer">
-                    <el-button @click="showCreateDialog = false">取消</el-button>
-                    <el-button type="primary" @click="createTask">创建</el-button>
-                </span>
-            </template>
-        </el-dialog>
-
         <!-- Task Detail Dialog -->
-        <el-dialog v-model="showDetailDialog" title="任务详情" width="600px">
+        <el-dialog v-model="showDetailDialog" title="定时任务详情" width="600px">
             <template v-if="selectedTask">
                 <el-descriptions :column="2" border>
-                    <el-descriptions-item label="ID">{{ selectedTask.id }}</el-descriptions-item>
+                    <el-descriptions-item label="任务名称" :span="2">{{ selectedTask.title }}</el-descriptions-item>
                     <el-descriptions-item label="状态">
                         <el-tag :type="getStatusType(selectedTask.status)">{{ getStatusLabel(selectedTask.status) }}</el-tag>
                     </el-descriptions-item>
-                    <el-descriptions-item label="标题" :span="2">{{ selectedTask.title }}</el-descriptions-item>
-                    <el-descriptions-item label="描述" :span="2">{{ selectedTask.description || '无' }}</el-descriptions-item>
-                    <el-descriptions-item label="来源">{{ getSourceLabel(selectedTask.source) }}</el-descriptions-item>
-                    <el-descriptions-item label="优先级">{{ getPriorityLabel(selectedTask.priority) }}</el-descriptions-item>
-                    <el-descriptions-item label="分配给">{{ selectedTask.assignee || '未分配' }}</el-descriptions-item>
-                    <el-descriptions-item label="会话ID">{{ selectedTask.sessionId || '无' }}</el-descriptions-item>
-                    <el-descriptions-item label="创建时间">{{ formatTimeFull(selectedTask.createdAt) }}</el-descriptions-item>
-                    <el-descriptions-item label="开始时间">{{ selectedTask.startedAt ? formatTimeFull(selectedTask.startedAt) : '-' }}</el-descriptions-item>
-                    <el-descriptions-item label="完成时间">{{ selectedTask.completedAt ? formatTimeFull(selectedTask.completedAt) : '-' }}</el-descriptions-item>
-                    <el-descriptions-item v-if="selectedTask.result" label="结果" :span="2">
+                    <el-descriptions-item label="调度类型">
+                        <el-tag :type="selectedTask.metadata?.scheduleType === '单次' ? 'primary' : 'warning'">
+                            {{ selectedTask.metadata?.scheduleType || '未知' }}
+                        </el-tag>
+                    </el-descriptions-item>
+                    <el-descriptions-item label="调度表达式" :span="2" v-if="selectedTask.metadata?.scheduleExpr">
+                        {{ selectedTask.metadata.scheduleExpr }}
+                    </el-descriptions-item>
+                    <el-descriptions-item label="执行内容" :span="2">{{ selectedTask.description || '无' }}</el-descriptions-item>
+                    <el-descriptions-item label="下次执行">{{ selectedTask.metadata?.nextRunAtMs > 0 ? formatTimeFull(selectedTask.metadata.nextRunAtMs) : '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="执行次数">{{ selectedTask.metadata?.executionCount || 0 }} 次</el-descriptions-item>
+                    <el-descriptions-item label="上次执行">{{ selectedTask.metadata?.lastRunAtMs > 0 ? formatTimeFull(selectedTask.metadata.lastRunAtMs) : '-' }}</el-descriptions-item>
+                    <el-descriptions-item label="上次状态">
+                        <el-tag v-if="selectedTask.metadata?.lastStatus" size="small"
+                                :type="selectedTask.metadata.lastStatus === 'ok' ? 'success' : 'danger'">
+                            {{ selectedTask.metadata.lastStatus }}
+                        </el-tag>
+                        <span v-else>-</span>
+                    </el-descriptions-item>
+                    <el-descriptions-item label="创建时间" :span="2">{{ formatTimeFull(selectedTask.createdAt) }}</el-descriptions-item>
+                    <el-descriptions-item v-if="selectedTask.result" label="执行结果" :span="2">
                         <el-input type="textarea" :rows="3" :model-value="selectedTask.result" readonly />
                     </el-descriptions-item>
-                    <el-descriptions-item v-if="selectedTask.error" label="错误" :span="2">
+                    <el-descriptions-item v-if="selectedTask.error" label="错误信息" :span="2">
                         <el-input type="textarea" :rows="3" :model-value="selectedTask.error" readonly />
                     </el-descriptions-item>
                 </el-descriptions>
             </template>
             <template #footer>
-                <span class="dialog-footer">
-                    <el-button v-if="selectedTask?.status === 'pending'" type="primary" @click="startTask(selectedTask)">开始</el-button>
-                    <el-button v-if="selectedTask?.status === 'running'" type="success" @click="completeTask(selectedTask)">完成</el-button>
-                    <el-button v-if="selectedTask?.status === 'running'" type="danger" @click="failTask(selectedTask)">失败</el-button>
-                    <el-button v-if="['pending', 'todo'].includes(selectedTask?.status)" type="warning" @click="cancelTask(selectedTask)">取消</el-button>
-                    <el-button type="danger" @click="deleteTask(selectedTask)">删除</el-button>
+                <span style="display: flex; justify-content: space-between; width: 100%;">
+                    <el-button type="danger" @click="deleteTask(selectedTask)">删除任务</el-button>
                     <el-button @click="showDetailDialog = false">关闭</el-button>
                 </span>
             </template>
@@ -419,40 +367,34 @@
     </div>
 
     <script>
-        const { createApp, ref, reactive, onMounted, onUnmounted } = Vue;
-        const { ElMessage } = ElementPlus;
+        const { createApp, ref, reactive, computed, onMounted, onUnmounted } = Vue;
+        const { ElMessage, ElMessageBox } = ElementPlus;
 
         const app = createApp({
             setup() {
                 const loading = ref(false);
                 const connected = ref(false);
-                const board = reactive({
-                    backlog: [],
-                    todo: [],
-                    inProgress: [],
-                    done: []
-                });
+                const tasks = ref([]);
                 const stats = reactive({
                     total: 0,
                     byStatus: {},
                     bySource: {},
                     byColumn: {}
                 });
-                const filterSource = ref('');
-                const searchText = ref('');
-                const showCreateDialog = ref(false);
                 const showDetailDialog = ref(false);
                 const selectedTask = ref(null);
-                const newTask = reactive({
-                    title: '',
-                    description: '',
-                    priority: 'medium'
-                });
 
                 let eventSource = null;
-
-                // API base URL
                 const apiBase = '';
+
+                // Computed
+                const inProgressTasks = computed(() => {
+                    return tasks.value.filter(t => t.column === 'in_progress');
+                });
+
+                const doneTasks = computed(() => {
+                    return tasks.value.filter(t => t.column === 'done');
+                });
 
                 // Load board data
                 const loadBoard = async () => {
@@ -460,10 +402,10 @@
                     try {
                         const res = await fetch(`${apiBase}/api/board`);
                         const data = await res.json();
-                        board.backlog = data.backlog || [];
-                        board.todo = data.todo || [];
-                        board.inProgress = data.inProgress || [];
-                        board.done = data.done || [];
+                        tasks.value = [
+                            ...(data.inProgress || []),
+                            ...(data.done || [])
+                        ];
                     } catch (e) {
                         ElMessage.error('加载看板失败: ' + e.message);
                     }
@@ -494,45 +436,13 @@
 
                     eventSource.onerror = () => {
                         connected.value = false;
-                        // Reconnect after 3 seconds
                         setTimeout(connectSSE, 3000);
                     };
 
                     eventSource.addEventListener('task', (e) => {
-                        const event = JSON.parse(e.data);
-                        // Refresh board on task events
                         loadBoard();
                         loadStats();
                     });
-                };
-
-                // Create task
-                const createTask = async () => {
-                    if (!newTask.title) {
-                        ElMessage.warning('请输入任务标题');
-                        return;
-                    }
-                    try {
-                        const res = await fetch(`${apiBase}/api/tasks`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(newTask)
-                        });
-                        if (res.ok) {
-                            ElMessage.success('任务创建成功');
-                            showCreateDialog.value = false;
-                            newTask.title = '';
-                            newTask.description = '';
-                            newTask.priority = 'medium';
-                            loadBoard();
-                            loadStats();
-                        } else {
-                            const err = await res.json();
-                            ElMessage.error('创建失败: ' + err.error);
-                        }
-                    } catch (e) {
-                        ElMessage.error('创建失败: ' + e.message);
-                    }
                 };
 
                 // Show task detail
@@ -541,46 +451,12 @@
                     showDetailDialog.value = true;
                 };
 
-                // Task actions
-                const startTask = async (task) => {
-                    await updateTaskStatus(task.id, 'running');
-                };
-
-                const completeTask = async (task) => {
-                    await updateTaskStatus(task.id, 'completed');
-                };
-
-                const failTask = async (task) => {
-                    await updateTaskStatus(task.id, 'failed');
-                };
-
-                const cancelTask = async (task) => {
-                    await updateTaskStatus(task.id, 'cancelled');
-                };
-
-                const updateTaskStatus = async (taskId, status) => {
-                    try {
-                        const res = await fetch(`${apiBase}/api/tasks/${taskId}/status`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ status })
-                        });
-                        if (res.ok) {
-                            ElMessage.success('状态已更新');
-                            showDetailDialog.value = false;
-                            loadBoard();
-                            loadStats();
-                        } else {
-                            const err = await res.json();
-                            ElMessage.error('更新失败: ' + err.error);
-                        }
-                    } catch (e) {
-                        ElMessage.error('更新失败: ' + e.message);
-                    }
-                };
-
+                // Delete task
                 const deleteTask = async (task) => {
                     try {
+                        await ElMessageBox.confirm('确定要删除此定时任务吗？', '确认删除', {
+                            type: 'warning'
+                        });
                         const res = await fetch(`${apiBase}/api/tasks/${task.id}`, {
                             method: 'DELETE'
                         });
@@ -594,45 +470,33 @@
                             ElMessage.error('删除失败: ' + err.error);
                         }
                     } catch (e) {
-                        ElMessage.error('删除失败: ' + e.message);
+                        if (e !== 'cancel') {
+                            ElMessage.error('删除失败: ' + e.message);
+                        }
                     }
                 };
 
-                // Filter tasks
-                const filterTasks = (tasks) => {
-                    if (!tasks) return [];
-                    return tasks.filter(task => {
-                        if (filterSource.value && task.source !== filterSource.value) return false;
-                        if (searchText.value && !task.title.toLowerCase().includes(searchText.value.toLowerCase())) return false;
-                        return true;
-                    });
-                };
-
                 // Formatters
-                const formatTime = (time) => {
-                    if (!time) return '';
-                    const date = new Date(time);
+                const formatTime = (ms) => {
+                    if (!ms) return '';
+                    const date = new Date(ms);
                     const now = new Date();
-                    const diff = now - date;
-                    if (diff < 60000) return '刚刚';
-                    if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
-                    if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
-                    return date.toLocaleDateString();
+                    const diff = date - now;
+                    if (diff < 0) return '已过期';
+                    if (diff < 60000) return '即将执行';
+                    if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟后';
+                    if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时后';
+                    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString().slice(0, 5);
                 };
 
-                const formatTimeFull = (time) => {
-                    if (!time) return '';
-                    return new Date(time).toLocaleString();
+                const formatTimeFull = (ms) => {
+                    if (!ms) return '';
+                    return new Date(ms).toLocaleString();
                 };
 
-                const getSourceLabel = (source) => {
-                    const labels = {
-                        user: '用户请求',
-                        subagent: '子代理',
-                        cron: '定时任务',
-                        manual: '手动'
-                    };
-                    return labels[source] || source;
+                const truncate = (str, len) => {
+                    if (!str) return '';
+                    return str.length > len ? str.slice(0, len) + '...' : str;
                 };
 
                 const getStatusLabel = (status) => {
@@ -657,16 +521,6 @@
                     return types[status] || 'info';
                 };
 
-                const getPriorityLabel = (priority) => {
-                    const labels = {
-                        low: '低',
-                        medium: '中',
-                        high: '高',
-                        urgent: '紧急'
-                    };
-                    return labels[priority] || priority;
-                };
-
                 // Lifecycle
                 onMounted(() => {
                     loadBoard();
@@ -683,29 +537,20 @@
                 return {
                     loading,
                     connected,
-                    board,
+                    tasks,
                     stats,
-                    filterSource,
-                    searchText,
-                    showCreateDialog,
+                    inProgressTasks,
+                    doneTasks,
                     showDetailDialog,
                     selectedTask,
-                    newTask,
                     loadBoard,
-                    createTask,
                     showTaskDetail,
-                    startTask,
-                    completeTask,
-                    failTask,
-                    cancelTask,
                     deleteTask,
-                    filterTasks,
                     formatTime,
                     formatTimeFull,
-                    getSourceLabel,
+                    truncate,
                     getStatusLabel,
-                    getStatusType,
-                    getPriorityLabel
+                    getStatusType
                 };
             }
         });
