@@ -71,6 +71,10 @@ func (t *CronTool) Parameters() map[string]interface{} {
 				"type":        "string",
 				"description": "时区",
 			},
+			"execute": map[string]interface{}{
+				"type":        "boolean",
+				"description": "是否先执行Agent再通知（默认false，仅通知）",
+			},
 		},
 		"required": []string{"action"},
 	}
@@ -84,6 +88,7 @@ func (t *CronTool) Execute(ctx context.Context, params json.RawMessage) (string,
 		Message  string `json:"message"`
 		JobID    string `json:"job_id"`
 		Timezone string `json:"timezone"`
+		Execute  bool   `json:"execute"`
 	}
 
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -94,7 +99,7 @@ func (t *CronTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	case "list":
 		return t.listJobs()
 	case "add":
-		return t.addJob(p.Name, p.Schedule, p.Message, p.Timezone)
+		return t.addJob(p.Name, p.Schedule, p.Message, p.Timezone, p.Execute)
 	case "remove":
 		return t.removeJob(p.JobID)
 	case "enable":
@@ -132,7 +137,7 @@ func (t *CronTool) listJobs() (string, error) {
 	return sb.String(), nil
 }
 
-func (t *CronTool) addJob(name, scheduleStr, message, timezone string) (string, error) {
+func (t *CronTool) addJob(name, scheduleStr, message, timezone string, execute bool) (string, error) {
 	if name == "" || scheduleStr == "" || message == "" {
 		return "", fmt.Errorf("name, schedule, and message are required")
 	}
@@ -143,6 +148,13 @@ func (t *CronTool) addJob(name, scheduleStr, message, timezone string) (string, 
 	}
 
 	var opts []cron.JobOption
+
+	// 设置执行模式
+	if execute {
+		opts = append(opts, cron.WithExecute(true))
+	}
+
+	// 设置投递渠道
 	if w, ok := t.service.(*CronServiceWrapper); ok && w.Channel != "" {
 		opts = append(opts, cron.WithDeliver(w.Channel, w.ChannelTo))
 		logger.Debug("CronTool setting deliver", "channel", w.Channel, "to", w.ChannelTo)
@@ -158,6 +170,12 @@ func (t *CronTool) addJob(name, scheduleStr, message, timezone string) (string, 
 
 	if job.Payload.Deliver {
 		result += fmt.Sprintf("\n- Notify on: %s", job.Payload.Channel)
+	}
+
+	if job.Payload.Execute {
+		result += "\n- Mode: 🤖 Execute + Notify"
+	} else {
+		result += "\n- Mode: 📢 Notify only"
 	}
 
 	return result, nil

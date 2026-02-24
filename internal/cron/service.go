@@ -441,6 +441,13 @@ func WithSourceTaskID(taskID string) JobOption {
 	}
 }
 
+// WithExecute 设置执行模式（true=先执行Agent再通知，false=仅通知）
+func WithExecute(execute bool) JobOption {
+	return func(j *CronJob) {
+		j.Payload.Execute = execute
+	}
+}
+
 // RemoveJob 删除任务
 func (s *Service) RemoveJob(id string) bool {
 	s.mu.Lock()
