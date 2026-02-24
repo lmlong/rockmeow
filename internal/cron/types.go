@@ -51,6 +51,9 @@ type CronPayload struct {
 	Kind    PayloadKind `json:"kind"`
 	Message string      `json:"message"`
 
+	// 执行模式
+	Execute bool `json:"execute"` // 是否先执行 Agent，true=先执行再通知，false=仅通知
+
 	// 是否将响应发送到渠道
 	Deliver bool   `json:"deliver"`
 	Channel string `json:"channel,omitempty"` // 如 "feishu"

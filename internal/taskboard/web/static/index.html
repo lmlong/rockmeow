@@ -159,6 +159,8 @@
         }
         .schedule-onetime { background: #ecf5ff; color: #409eff; }
         .schedule-recurring { background: #fdf6ec; color: #e6a23c; }
+        .execute-yes { background: #ecf5ff; color: #409eff; }
+        .execute-no { background: #f0f9eb; color: #67c23a; }
         .status-dot {
             width: 8px;
             height: 8px;
@@ -259,6 +261,9 @@
                             <div class="task-meta">
                                 <span class="schedule-badge" :class="task.metadata?.scheduleType === '单次' ? 'schedule-onetime' : 'schedule-recurring'">
                                     {{ task.metadata?.scheduleType || '未知' }}
+                                </span>
+                                <span class="execute-badge" :class="task.metadata?.execute ? 'execute-yes' : 'execute-no'">
+                                    {{ task.metadata?.execute ? '🤖 执行' : '📢 通知' }}
                                 </span>
                                 <span class="execution-count" v-if="task.metadata?.executionCount > 0">
                                     已执行 {{ task.metadata.executionCount }} 次

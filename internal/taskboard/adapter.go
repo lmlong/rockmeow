@@ -119,6 +119,7 @@ func (a *CronAdapter) OnCronJobCreated(job *cron.CronJob) {
 			"scheduleKind":   string(job.Schedule.Kind),
 			"scheduleExpr":   scheduleExpr,
 			"enabled":        job.Enabled,
+			"execute":        job.Payload.Execute, // 执行模式
 			"nextRunAtMs":    job.State.NextRunAtMs,
 			"lastRunAtMs":    job.State.LastRunAtMs,
 			"lastStatus":     job.State.LastStatus,

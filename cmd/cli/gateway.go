@@ -302,15 +302,40 @@ func createCronJobCallback(ag *agent.Agent, mgr *channels.Manager) cron.JobCallb
 	return func(job *cron.CronJob) (string, error) {
 		logger.Info("Cron job executing",
 			"name", job.Name,
+			"execute", job.Payload.Execute,
 			"deliver", job.Payload.Deliver,
 			"channel", job.Payload.Channel,
 			"to", job.Payload.To)
 
-		// 直接发送通知（不经过 LLM）
-		if job.Payload.Deliver && job.Payload.Channel != "" && job.Payload.To != "" {
-			content := fmt.Sprintf("⏰ **%s**\n\n%s", job.Name, job.Payload.Message)
-			logger.Info("Sending cron notification", "channel", job.Payload.Channel, "to", job.Payload.To)
+		var result string
+		var err error
 
+		// 执行模式：先执行 Agent，再发送通知
+		if job.Payload.Execute {
+			logger.Info("Executing agent for cron job", "name", job.Name, "message", job.Payload.Message)
+			result, err = ag.ProcessMessage(context.Background(), "cron-"+job.ID, job.Payload.Message)
+			if err != nil {
+				logger.Error("Agent execution failed for cron job", "name", job.Name, "error", err)
+			} else {
+				logger.Info("Agent execution completed for cron job", "name", job.Name, "resultLen", len(result))
+			}
+		} else {
+			// 纯通知模式：直接使用消息内容
+			result = job.Payload.Message
+		}
+
+		// 发送通知
+		if job.Payload.Deliver && job.Payload.Channel != "" && job.Payload.To != "" {
+			var content string
+			if job.Payload.Execute {
+				// 执行模式：显示任务名和执行结果
+				content = fmt.Sprintf("⏰ **%s**\n\n%s", job.Name, result)
+			} else {
+				// 纯通知模式：显示任务名和预设消息
+				content = fmt.Sprintf("⏰ **%s**\n\n%s", job.Name, job.Payload.Message)
+			}
+
+			logger.Info("Sending cron notification", "channel", job.Payload.Channel, "to", job.Payload.To, "execute", job.Payload.Execute)
 			if sendErr := mgr.SendMessage(job.Payload.Channel, job.Payload.To, content); sendErr != nil {
 				logger.Error("Failed to send cron notification", "error", sendErr)
 			} else {
@@ -324,8 +349,7 @@ func createCronJobCallback(ag *agent.Agent, mgr *channels.Manager) cron.JobCallb
 				"to", job.Payload.To)
 		}
 
-		// 返回成功，不调用 LLM
-		return job.Payload.Message, nil
+		return result, err
 	}
 }
 
