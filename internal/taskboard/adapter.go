@@ -242,8 +242,15 @@ func (a *CronAdapter) OnCronJobCompleted(job *cron.CronJob, result string, errMs
 			task.Metadata["lastStatus"] = job.State.LastStatus
 			task.Metadata["nextRunAtMs"] = job.State.NextRunAtMs
 
+			// 增加执行次数
+			execCount := 0
+			if v, ok := task.Metadata["executionCount"].(int); ok {
+				execCount = v
+			}
+			task.Metadata["executionCount"] = execCount + 1
+
 			// 单次任务：标记为完成/失败
-			// 周期性任务：恢复为待定状态，等待下次执行
+			// 周期性任务：保持进行中状态，等待下次执行
 			isOneTime := job.Schedule.Kind == cron.ScheduleKindAt
 
 			if errMsg != "" {
@@ -252,9 +259,9 @@ func (a *CronAdapter) OnCronJobCompleted(job *cron.CronJob, result string, errMs
 					task.Status = TaskStatusFailed
 					task.Column = ColumnDone
 				} else {
-					// 周期性任务执行失败，恢复待定状态
-					task.Status = TaskStatusPending
-					task.Column = ColumnTodo
+					// 周期性任务执行失败，保持进行中状态
+					task.Status = TaskStatusRunning
+					task.Column = ColumnInProgress
 				}
 				if err := a.service.UpdateTask(task); err != nil {
 					logger.Warn("Failed to update cron task", "taskId", task.ID, "error", err)
@@ -267,9 +274,9 @@ func (a *CronAdapter) OnCronJobCompleted(job *cron.CronJob, result string, errMs
 					task.Status = TaskStatusCompleted
 					task.Column = ColumnDone
 				} else {
-					// 周期性任务执行成功，恢复待定状态
-					task.Status = TaskStatusPending
-					task.Column = ColumnTodo
+					// 周期性任务执行成功，保持进行中状态
+					task.Status = TaskStatusRunning
+					task.Column = ColumnInProgress
 				}
 				if err := a.service.UpdateTask(task); err != nil {
 					logger.Warn("Failed to update cron task", "taskId", task.ID, "error", err)

@@ -39,7 +39,7 @@ func NewCronTool(service CronService) *CronTool {
 func (t *CronTool) Name() string { return "cron" }
 
 func (t *CronTool) Description() string {
-	return "任务调度"
+	return "定时任务调度。重要：当任务需要执行操作（如搜索、收集、整理、分析等）时，必须设置execute=true"
 }
 
 func (t *CronTool) Parameters() map[string]interface{} {
@@ -53,27 +53,27 @@ func (t *CronTool) Parameters() map[string]interface{} {
 			},
 			"name": map[string]interface{}{
 				"type":        "string",
-				"description": "名称",
+				"description": "任务名称",
 			},
 			"schedule": map[string]interface{}{
 				"type":        "string",
-				"description": "时间",
+				"description": "时间（格式：cron:分 时 * * * 或 every:1h 或 at:2024-01-01T10:00）",
 			},
 			"message": map[string]interface{}{
 				"type":        "string",
-				"description": "内容",
+				"description": "任务内容",
 			},
 			"job_id": map[string]interface{}{
 				"type":        "string",
-				"description": "ID",
+				"description": "任务ID",
 			},
 			"timezone": map[string]interface{}{
 				"type":        "string",
-				"description": "时区",
+				"description": "时区（如Asia/Shanghai）",
 			},
 			"execute": map[string]interface{}{
 				"type":        "boolean",
-				"description": "是否先执行Agent再通知（默认false，仅通知）",
+				"description": "执行模式：true=先执行Agent处理任务再通知结果（用于搜索、收集、整理等需要执行操作的任务），false=仅发送通知（用于简单提醒）。默认false。",
 			},
 		},
 		"required": []string{"action"},
