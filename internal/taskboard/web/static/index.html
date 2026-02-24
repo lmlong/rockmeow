@@ -462,12 +462,14 @@
                         await ElMessageBox.confirm('确定要删除此定时任务吗？', '确认删除', {
                             type: 'warning'
                         });
+                        // 立即关闭详情框，防止后续操作出现 race condition
+                        showDetailDialog.value = false;
+
                         const res = await fetch(`${apiBase}/api/tasks/${task.id}`, {
                             method: 'DELETE'
                         });
                         if (res.ok) {
                             ElMessage.success('任务已删除');
-                            showDetailDialog.value = false;
                             loadBoard();
                             loadStats();
                         } else {

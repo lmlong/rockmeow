@@ -167,16 +167,16 @@ func (h *HTTPHandler) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 先删除看板任务（在删除 cron job 之前，避免 OnCronJobRemoved 再次删除）
+	if err := h.service.DeleteTask(id); err != nil {
+		h.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	// 如果是 cron 任务，同时删除 cron job
 	if task.Source == TaskSourceCron && task.SourceRef != "" && h.cronDeleter != nil {
 		logger.Info("Deleting cron job along with taskboard task", "taskId", id, "cronId", task.SourceRef)
 		h.cronDeleter.RemoveJob(task.SourceRef)
-	}
-
-	// 删除看板任务
-	if err := h.service.DeleteTask(id); err != nil {
-		h.writeError(w, http.StatusInternalServerError, err.Error())
-		return
 	}
 
 	h.writeJSON(w, map[string]string{"message": "task deleted"})

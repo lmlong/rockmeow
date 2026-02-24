@@ -39,7 +39,12 @@ func NewCronTool(service CronService) *CronTool {
 func (t *CronTool) Name() string { return "cron" }
 
 func (t *CronTool) Description() string {
-	return "定时任务调度。重要：当任务需要执行操作（如搜索、收集、整理、分析等）时，必须设置execute=true"
+	return `定时任务调度管理。支持的操作：
+- list: 列出所有定时任务（用户询问定时任务列表时使用）
+- add: 添加新的定时任务
+- remove: 删除定时任务
+- enable/disable: 启用/禁用任务
+重要：当任务需要执行操作（如搜索、收集、整理、分析等）时，必须设置execute=true`
 }
 
 func (t *CronTool) Parameters() map[string]interface{} {
@@ -49,7 +54,7 @@ func (t *CronTool) Parameters() map[string]interface{} {
 			"action": map[string]interface{}{
 				"type":        "string",
 				"enum":        []string{"list", "add", "remove", "enable", "disable"},
-				"description": "操作",
+				"description": "操作类型：list=查看所有定时任务，add=创建新任务，remove=删除任务，enable/disable=启用/禁用",
 			},
 			"name": map[string]interface{}{
 				"type":        "string",
