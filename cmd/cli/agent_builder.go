@@ -104,8 +104,17 @@ func (b *AgentBuilder) InitSkills(verbose bool) {
 		}
 	}
 
+	// 根据配置确定禁用的技能
+	var disabledSkills []string
+	if b.cfg.Tools.Moltbook != nil && !b.cfg.Tools.Moltbook.Enabled {
+		disabledSkills = append(disabledSkills, "moltbook")
+	}
+	if b.cfg.Tools.ClawHub != nil && !b.cfg.Tools.ClawHub.Enabled {
+		disabledSkills = append(disabledSkills, "clawhub")
+	}
+
 	if len(skillDirs) > 0 || workspaceSkillsDir != "" {
-		b.skillsLoader = skills.NewLoader(skillDirs, workspaceSkillsDir)
+		b.skillsLoader = skills.NewLoader(skillDirs, workspaceSkillsDir, disabledSkills)
 	}
 }
 

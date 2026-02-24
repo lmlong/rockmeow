@@ -68,16 +68,9 @@ func NewCronAdapter(service *Service) *CronAdapter {
 }
 
 // OnCronJobCreated 定时任务创建时调用
-// 只为单次任务创建看板任务，周期性任务在执行时创建
+// 为所有定时任务（单次和周期性）创建看板任务
 func (a *CronAdapter) OnCronJobCreated(job *cron.CronJob) {
 	if a.service == nil {
-		return
-	}
-
-	// 只为单次任务创建看板任务
-	isOneTime := job.Schedule.Kind == cron.ScheduleKindAt
-	if !isOneTime {
-		logger.Debug("Recurring cron job, will create task on each execution", "cronId", job.ID, "name", job.Name)
 		return
 	}
 
@@ -90,141 +83,205 @@ func (a *CronAdapter) OnCronJobCreated(job *cron.CronJob) {
 		logger.Warn("Failed to list cron tasks", "error", err)
 	} else {
 		for _, t := range tasks {
-			if t.SourceRef == job.ID && t.Status != TaskStatusCompleted && t.Status != TaskStatusFailed {
-				// 已存在且未完成，跳过
-				logger.Debug("Cron task already exists in board", "cronId", job.ID, "taskId", t.ID)
+			if t.SourceRef == job.ID {
+				// 已存在，更新 metadata
+				a.updateCronTaskMetadata(t, job)
 				return
 			}
 		}
 	}
 
-	task, err := a.service.CreateCronTask(job.ID, job.Name, job.Payload.Message)
-	if err != nil {
+	// 创建新的看板任务
+	scheduleType := "周期性"
+	scheduleExpr := ""
+	if job.Schedule.Kind == cron.ScheduleKindAt {
+		scheduleType = "单次"
+		scheduleExpr = time.UnixMilli(job.Schedule.AtMs).Format("2006-01-02 15:04:05")
+	} else if job.Schedule.Kind == cron.ScheduleKindCron {
+		scheduleExpr = job.Schedule.Expr
+		if job.Schedule.TZ != "" {
+			scheduleExpr += " (TZ: " + job.Schedule.TZ + ")"
+		}
+	} else if job.Schedule.Kind == cron.ScheduleKindEvery {
+		scheduleExpr = fmt.Sprintf("每 %s", time.Duration(job.Schedule.EveryMs)*time.Millisecond)
+	}
+
+	task := &Task{
+		Title:        job.Name,
+		Description:  job.Payload.Message,
+		Status:       TaskStatusRunning, // 所有定时任务默认为进行中
+		Column:       ColumnInProgress,  // 所有定时任务默认在进行中列
+		Source:       TaskSourceCron,
+		SourceRef:    job.ID,
+		Assignee:     "cron-service",
+		AssigneeType: AssigneeTypeAgent,
+		Metadata: map[string]interface{}{
+			"scheduleType":   scheduleType,
+			"scheduleKind":   string(job.Schedule.Kind),
+			"scheduleExpr":   scheduleExpr,
+			"enabled":        job.Enabled,
+			"nextRunAtMs":    job.State.NextRunAtMs,
+			"lastRunAtMs":    job.State.LastRunAtMs,
+			"lastStatus":     job.State.LastStatus,
+			"executingAt":    "",
+			"executionCount": 0,
+		},
+	}
+
+	if err := a.service.CreateTask(task); err != nil {
 		logger.Warn("Failed to create cron task", "cronId", job.ID, "error", err)
 		return
 	}
 
-	// 直接设为进行中状态
-	if err := a.service.StartTask(task.ID); err != nil {
-		logger.Warn("Failed to start cron task", "taskId", task.ID, "error", err)
+	logger.Info("Cron task created", "taskId", task.ID, "cronId", job.ID, "name", job.Name, "scheduleType", scheduleType)
+}
+
+// updateCronTaskMetadata 更新定时任务元数据
+func (a *CronAdapter) updateCronTaskMetadata(task *Task, job *cron.CronJob) {
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]interface{})
 	}
 
-	logger.Info("One-time cron task created", "taskId", task.ID, "cronId", job.ID, "name", job.Name)
+	task.Metadata["enabled"] = job.Enabled
+	task.Metadata["nextRunAtMs"] = job.State.NextRunAtMs
+	task.Metadata["lastRunAtMs"] = job.State.LastRunAtMs
+	task.Metadata["lastStatus"] = job.State.LastStatus
+
+	// 更新任务状态
+	if job.Enabled {
+		if task.Status == TaskStatusPending {
+			// 保持待定状态
+		}
+	} else {
+		task.Status = TaskStatusPending
+		task.Column = ColumnTodo
+	}
+
+	if err := a.service.UpdateTask(task); err != nil {
+		logger.Warn("Failed to update cron task metadata", "taskId", task.ID, "error", err)
+	}
 }
 
 // OnCronJobExecuting 定时任务执行时调用
-// 对于周期性任务，每次执行创建新的看板任务
+// 更新现有任务状态为执行中，不创建新任务
 func (a *CronAdapter) OnCronJobExecuting(job *cron.CronJob) {
 	if a.service == nil {
 		return
 	}
 
-	isOneTime := job.Schedule.Kind == cron.ScheduleKindAt
-
-	if isOneTime {
-		// 单次任务：更新现有任务
-		logger.Info("One-time cron job executing", "cronId", job.ID, "name", job.Name)
-		tasks, err := a.service.ListTasks(&TaskFilter{
-			Source: ptrSource(TaskSourceCron),
-			Limit:  100,
-		})
-		if err != nil {
-			logger.Warn("Failed to find cron task", "cronId", job.ID, "error", err)
-			return
-		}
-
-		for _, task := range tasks {
-			if task.SourceRef == job.ID && task.Status == TaskStatusRunning {
-				// 确保 Metadata 已初始化
-				if task.Metadata == nil {
-					task.Metadata = make(map[string]interface{})
-				}
-				task.Metadata["executingAt"] = time.Now().Format(time.RFC3339)
-				if err := a.service.UpdateTask(task); err != nil {
-					logger.Warn("Failed to update cron task", "taskId", task.ID, "error", err)
-				}
-				return
-			}
-		}
-	} else {
-		// 周期性任务：创建新的执行任务
-		logger.Info("Recurring cron job executing, creating new task", "cronId", job.ID, "name", job.Name)
-
-		// 创建新的执行实例任务
-		task := &Task{
-			Title:        fmt.Sprintf("[Cron] %s", job.Name),
-			Description:  job.Payload.Message,
-			Status:       TaskStatusRunning,
-			Column:       ColumnInProgress,
-			Source:       TaskSourceCron,
-			SourceRef:    job.ID,
-			Assignee:     "cron-service",
-			AssigneeType: AssigneeTypeAgent,
-			Metadata: map[string]interface{}{
-				"executingAt": time.Now().Format(time.RFC3339),
-				"schedule":    job.Schedule.Kind,
-			},
-		}
-
-		if err := a.service.CreateTask(task); err != nil {
-			logger.Warn("Failed to create cron execution task", "cronId", job.ID, "error", err)
-			return
-		}
-
-		// 手动设置为进行中
-		a.service.StartTask(task.ID)
-		logger.Info("Recurring cron execution task created", "taskId", task.ID, "cronId", job.ID, "name", job.Name)
-	}
-}
-
-// OnCronJobCompleted 定时任务执行完成时调用
-func (a *CronAdapter) OnCronJobCompleted(job *cron.CronJob, result string, errMsg string) {
-	if a.service == nil {
-		return
-	}
-
-	isOneTime := job.Schedule.Kind == cron.ScheduleKindAt
-	logger.Info("Cron job completed", "cronId", job.ID, "name", job.Name, "isOneTime", isOneTime, "hasError", errMsg != "")
+	logger.Info("Cron job executing", "cronId", job.ID, "name", job.Name)
 
 	// 查找对应的看板任务
 	tasks, err := a.service.ListTasks(&TaskFilter{
 		Source: ptrSource(TaskSourceCron),
-		Limit:  200,
+		Limit:  100,
 	})
 	if err != nil {
 		logger.Warn("Failed to find cron task", "cronId", job.ID, "error", err)
 		return
 	}
 
-	// 找到最新的进行中任务
-	var targetTask *Task
-	for i := len(tasks) - 1; i >= 0; i-- {
-		task := tasks[i]
-		if task.SourceRef == job.ID && task.Status == TaskStatusRunning {
-			targetTask = task
-			break
+	for _, task := range tasks {
+		if task.SourceRef == job.ID {
+			// 更新任务状态为执行中
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]interface{})
+			}
+			task.Metadata["executingAt"] = time.Now().Format(time.RFC3339)
+			task.Metadata["nextRunAtMs"] = job.State.NextRunAtMs
+
+			// 增加执行次数
+			execCount := 0
+			if v, ok := task.Metadata["executionCount"].(int); ok {
+				execCount = v
+			}
+			task.Metadata["executionCount"] = execCount + 1
+
+			// 更新状态
+			task.Status = TaskStatusRunning
+			task.Column = ColumnInProgress
+
+			if err := a.service.UpdateTask(task); err != nil {
+				logger.Warn("Failed to update cron task", "taskId", task.ID, "error", err)
+			} else {
+				logger.Info("Cron task status updated to running", "taskId", task.ID, "cronId", job.ID, "executionCount", execCount+1)
+			}
+			return
 		}
 	}
 
-	if targetTask == nil {
-		logger.Warn("No running cron task found to complete", "cronId", job.ID, "name", job.Name)
+	logger.Warn("No cron task found for executing job", "cronId", job.ID, "name", job.Name)
+}
+
+// OnCronJobCompleted 定时任务执行完成时调用
+// 更新任务状态为完成/失败
+func (a *CronAdapter) OnCronJobCompleted(job *cron.CronJob, result string, errMsg string) {
+	if a.service == nil {
 		return
 	}
 
-	// 完成任务
-	if errMsg != "" {
-		if err := a.service.FailTask(targetTask.ID, errMsg); err != nil {
-			logger.Warn("Failed to fail cron task", "taskId", targetTask.ID, "error", err)
-		} else {
-			logger.Info("Cron task failed", "taskId", targetTask.ID, "cronId", job.ID, "name", job.Name)
-		}
-	} else {
-		if err := a.service.CompleteTask(targetTask.ID, result); err != nil {
-			logger.Warn("Failed to complete cron task", "taskId", targetTask.ID, "error", err)
-		} else {
-			logger.Info("Cron task completed", "taskId", targetTask.ID, "cronId", job.ID, "name", job.Name)
+	logger.Info("Cron job completed", "cronId", job.ID, "name", job.Name, "hasError", errMsg != "")
+
+	// 查找对应的看板任务
+	tasks, err := a.service.ListTasks(&TaskFilter{
+		Source: ptrSource(TaskSourceCron),
+		Limit:  100,
+	})
+	if err != nil {
+		logger.Warn("Failed to find cron task", "cronId", job.ID, "error", err)
+		return
+	}
+
+	for _, task := range tasks {
+		if task.SourceRef == job.ID {
+			// 更新任务状态
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]interface{})
+			}
+			task.Metadata["lastRunAtMs"] = job.State.LastRunAtMs
+			task.Metadata["lastStatus"] = job.State.LastStatus
+			task.Metadata["nextRunAtMs"] = job.State.NextRunAtMs
+
+			// 单次任务：标记为完成/失败
+			// 周期性任务：恢复为待定状态，等待下次执行
+			isOneTime := job.Schedule.Kind == cron.ScheduleKindAt
+
+			if errMsg != "" {
+				task.Error = errMsg
+				if isOneTime {
+					task.Status = TaskStatusFailed
+					task.Column = ColumnDone
+				} else {
+					// 周期性任务执行失败，恢复待定状态
+					task.Status = TaskStatusPending
+					task.Column = ColumnTodo
+				}
+				if err := a.service.UpdateTask(task); err != nil {
+					logger.Warn("Failed to update cron task", "taskId", task.ID, "error", err)
+				} else {
+					logger.Info("Cron task marked as failed", "taskId", task.ID, "cronId", job.ID)
+				}
+			} else {
+				task.Result = result
+				if isOneTime {
+					task.Status = TaskStatusCompleted
+					task.Column = ColumnDone
+				} else {
+					// 周期性任务执行成功，恢复待定状态
+					task.Status = TaskStatusPending
+					task.Column = ColumnTodo
+				}
+				if err := a.service.UpdateTask(task); err != nil {
+					logger.Warn("Failed to update cron task", "taskId", task.ID, "error", err)
+				} else {
+					logger.Info("Cron task marked as completed", "taskId", task.ID, "cronId", job.ID)
+				}
+			}
+			return
 		}
 	}
+
+	logger.Warn("No cron task found for completed job", "cronId", job.ID, "name", job.Name)
 }
 
 // OnCronJobRemoved 定时任务删除时调用
@@ -233,7 +290,7 @@ func (a *CronAdapter) OnCronJobRemoved(job *cron.CronJob) {
 		return
 	}
 
-	// 查找并删除所有相关的看板任务
+	// 查找并删除相关的看板任务
 	tasks, err := a.service.ListTasks(&TaskFilter{
 		Source: ptrSource(TaskSourceCron),
 		Limit:  200,
@@ -243,19 +300,14 @@ func (a *CronAdapter) OnCronJobRemoved(job *cron.CronJob) {
 		return
 	}
 
-	count := 0
 	for _, task := range tasks {
 		if task.SourceRef == job.ID {
 			if err := a.service.DeleteTask(task.ID); err != nil {
 				logger.Warn("Failed to delete cron task", "taskId", task.ID, "error", err)
 			} else {
-				count++
+				logger.Info("Cron task deleted", "taskId", task.ID, "cronId", job.ID)
 			}
 		}
-	}
-
-	if count > 0 {
-		logger.Info("Cron tasks deleted", "count", count, "cronId", job.ID)
 	}
 }
 

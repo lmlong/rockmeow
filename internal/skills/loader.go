@@ -36,17 +36,34 @@ type Requirements struct {
 
 // Loader 技能加载器
 type Loader struct {
-	builtinDirs []string // 支持多个内置技能目录
-	workspace   string
+	builtinDirs    []string // 支持多个内置技能目录
+	workspace      string
+	disabledSkills []string // 禁用的技能列表
 }
 
 // NewLoader 创建技能加载器
 // builtinDirs 支持传入多个内置技能目录，按顺序优先级加载
-func NewLoader(builtinDirs []string, workspace string) *Loader {
-	return &Loader{
-		builtinDirs: builtinDirs,
-		workspace:   workspace,
+// disabledSkills 指定需要禁用的技能名称列表
+func NewLoader(builtinDirs []string, workspace string, disabledSkills ...[]string) *Loader {
+	var disabled []string
+	if len(disabledSkills) > 0 {
+		disabled = disabledSkills[0]
 	}
+	return &Loader{
+		builtinDirs:    builtinDirs,
+		workspace:      workspace,
+		disabledSkills: disabled,
+	}
+}
+
+// isDisabled 检查技能是否被禁用
+func (l *Loader) isDisabled(name string) bool {
+	for _, disabled := range l.disabledSkills {
+		if disabled == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ListSkills 列出所有可用技能
@@ -64,9 +81,9 @@ func (l *Loader) ListSkills() ([]*Skill, error) {
 			logger.Warn("Failed to load builtin skills", "dir", dir, "error", err)
 			continue
 		}
-		// 去重：只添加未 seen 的技能
+		// 去重：只添加未 seen 的技能，并过滤禁用的技能
 		for _, s := range builtinSkills {
-			if !seen[s.Name] {
+			if !seen[s.Name] && !l.isDisabled(s.Name) {
 				seen[s.Name] = true
 				skills = append(skills, s)
 			}
@@ -79,9 +96,9 @@ func (l *Loader) ListSkills() ([]*Skill, error) {
 		if err != nil {
 			logger.Warn("failed to load workspace skills", "error", err)
 		}
-		// 去重：工作区技能可以覆盖内置技能
+		// 去重：工作区技能可以覆盖内置技能，并过滤禁用的技能
 		for _, s := range workspaceSkills {
-			if !seen[s.Name] {
+			if !seen[s.Name] && !l.isDisabled(s.Name) {
 				seen[s.Name] = true
 				skills = append(skills, s)
 			}
