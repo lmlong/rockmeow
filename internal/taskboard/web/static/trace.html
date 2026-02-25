@@ -279,18 +279,54 @@
             margin-bottom: 4px;
         }
         .span-io-content {
-            background: #f8f9fa;
-            padding: 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            max-height: 400px;
+            background: #fafbfc;
+            padding: 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            max-height: 500px;
             overflow-y: auto;
+            border: 1px solid #e4e7ed;
+            line-height: 1.6;
         }
         .span-io-content pre {
             margin: 0;
             white-space: pre-wrap;
-            word-break: break-all;
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            word-wrap: break-word;
+            word-break: break-word;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            tab-size: 2;
+        }
+        .io-label {
+            display: inline-block;
+            background: #ecf5ff;
+            color: #409eff;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        .io-section {
+            margin-bottom: 16px;
+        }
+        .io-section:last-child {
+            margin-bottom: 0;
+        }
+        .io-key {
+            color: #e6a23c;
+            font-weight: 500;
+        }
+        .io-string {
+            color: #67c23a;
+        }
+        .io-number {
+            color: #409eff;
+        }
+        .io-boolean {
+            color: #f56c6c;
+        }
+        .io-null {
+            color: #909399;
         }
     </style>
 </head>
@@ -482,12 +518,12 @@
                             <el-collapse style="margin-top: 8px;">
                                 <el-collapse-item title="查看输入" v-if="span.input">
                                     <div class="span-io-content">
-                                        <pre>{{ formatJSON(span.input) }}</pre>
+                                        <pre v-html="formatJSON(span.input)"></pre>
                                     </div>
                                 </el-collapse-item>
                                 <el-collapse-item title="查看输出" v-if="span.output">
                                     <div class="span-io-content">
-                                        <pre>{{ formatJSON(span.output) }}</pre>
+                                        <pre v-html="formatJSON(span.output)"></pre>
                                     </div>
                                 </el-collapse-item>
                             </el-collapse>
@@ -501,12 +537,12 @@
                     <el-collapse>
                         <el-collapse-item title="用户输入" v-if="selectedTrace.input">
                             <div class="span-io-content">
-                                <pre>{{ formatJSON(selectedTrace.input) }}</pre>
+                                <pre v-html="formatJSON(selectedTrace.input)"></pre>
                             </div>
                         </el-collapse-item>
                         <el-collapse-item title="最终输出" v-if="selectedTrace.output">
                             <div class="span-io-content">
-                                <pre>{{ formatJSON(selectedTrace.output) }}</pre>
+                                <pre v-html="formatJSON(selectedTrace.output)"></pre>
                             </div>
                         </el-collapse-item>
                     </el-collapse>
@@ -682,16 +718,87 @@
                 };
 
                 // Format JSON for display
+                // Format JSON for display with syntax highlighting
                 const formatJSON = (str) => {
                     if (!str) return '';
+
+                    let parsed;
                     try {
-                        // Try to parse and re-format as JSON
-                        const parsed = JSON.parse(str);
-                        return JSON.stringify(parsed, null, 2);
+                        parsed = JSON.parse(str);
                     } catch (e) {
-                        // If not valid JSON, return as-is
-                        return str;
+                        // If not valid JSON, return as-is with line wrapping
+                        return escapeHtml(str);
                     }
+
+                    // Format with indentation
+                    return formatValue(parsed, 0);
+                };
+
+                // Escape HTML special characters
+                const escapeHtml = (str) => {
+                    return str
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;');
+                };
+
+                // Format a value with proper indentation and colors
+                const formatValue = (value, indent) => {
+                    const spaces = '  '.repeat(indent);
+                    const nextSpaces = '  '.repeat(indent + 1);
+
+                    if (value === null) {
+                        return '<span class="io-null">null</span>';
+                    }
+
+                    if (typeof value === 'boolean') {
+                        return `<span class="io-boolean">${value}</span>`;
+                    }
+
+                    if (typeof value === 'number') {
+                        return `<span class="io-number">${value}</span>`;
+                    }
+
+                    if (typeof value === 'string') {
+                        // Check if it's a long string that might be JSON
+                        if (value.length > 100) {
+                            try {
+                                const inner = JSON.parse(value);
+                                return formatValue(inner, indent);
+                            } catch (e) {
+                                // Not JSON, format as long string
+                            }
+                        }
+                        // Escape and quote the string
+                        const escaped = escapeHtml(value);
+                        // Handle multiline strings
+                        if (escaped.includes('\n')) {
+                            const lines = escaped.split('\n');
+                            return `<span class="io-string">"${lines[0]}"\n${lines.slice(1).map(l => nextSpaces + escapeHtml(l)).join('\n')}</span>`;
+                        }
+                        return `<span class="io-string">"${escaped}"</span>`;
+                    }
+
+                    if (Array.isArray(value)) {
+                        if (value.length === 0) return '[]';
+                        const items = value.map(item => nextSpaces + formatValue(item, indent + 1));
+                        return `[\n${items.join(',\n')}\n${spaces}]`;
+                    }
+
+                    if (typeof value === 'object') {
+                        const keys = Object.keys(value);
+                        if (keys.length === 0) return '{}';
+
+                        const items = keys.map(key => {
+                            const formattedKey = `<span class="io-key">"${escapeHtml(key)}"</span>`;
+                            const formattedValue = formatValue(value[key], indent + 1);
+                            return `${nextSpaces}${formattedKey}: ${formattedValue}`;
+                        });
+                        return `{\n${items.join(',\n')}\n${spaces}}`;
+                    }
+
+                    return String(value);
                 };
 
                 const formatTokens = (tokens) => {
