@@ -7,7 +7,7 @@
       "timeout": 120
     },
     "minimax": {
-      "apiKey": "sk-cp-mpX09dQEHgHHOva2vEZ89_c-RUNXA4CrmTFViEMUD-f00iTziDBdEtPvEIqHqD1o_LHQFtfMp-EYIf25nYv-wBM34G0XIw1OeSMev1QVUjOR7__GI6lQXv4",
+      "apiKey": "sk-cp-xxxxxxxx",
       "apiBase": "https://api.minimaxi.com/anthropic",
       "model": "MiniMax-M2.5"
     },
@@ -18,7 +18,7 @@
   },
   "agents": {
     "workspace": "~/.lingguard/workspace",
-    "provider": "minimax",
+    "provider": "glm",
     "multimodalProvider": "qwen",
     "maxToolIterations": 50,
     "memoryWindow": 50,
