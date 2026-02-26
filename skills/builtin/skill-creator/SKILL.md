@@ -20,8 +20,13 @@ metadata: {"nanobot":{"emoji":"🛠️","requires":{"bins":["python3"]}}}
 
 ### 1. 创建新 Skill
 
+**重要**：新创建的 skill 直接存放在 `~/.lingguard/skills/` 目录
+
 ```bash
-python3 scripts/create_skill.py --name my-skill --type basic
+python3 ~/.lingguard/skills/builtin/skill-creator/scripts/create_skill.py \
+  --name my-skill \
+  --type basic \
+  --output ~/.lingguard/skills/
 ```
 
 **参数说明：**
@@ -36,7 +41,8 @@ python3 scripts/create_skill.py --name my-skill --type basic
 ### 2. 验证 Skill 格式
 
 ```bash
-python3 scripts/validate_skill.py --path ./my-skill
+python3 ~/.lingguard/skills/builtin/skill-creator/scripts/validate_skill.py \
+  --path ~/.lingguard/skills/my-skill
 ```
 
 **参数说明：**
@@ -45,29 +51,27 @@ python3 scripts/validate_skill.py --path ./my-skill
 | `--path, -p` | Skill 目录路径（必填） | - |
 | `--strict, -s` | 严格模式（检查所有推荐项） | false |
 
-### 3. 安装到系统
+### 3. 编辑和测试
 
-```bash
-# 将创建好的 skill 复制到 skills 目录
-cp -r ./my-skill ~/.lingguard/skills/
-```
+创建后直接编辑 `~/.lingguard/skills/my-skill/SKILL.md`，新会话自动加载。
 
 ## 使用流程
 
 ```
-Step 1: 创建 skill 骨架
-├── python3 scripts/create_skill.py -n my-skill -t with-script
+Step 1: 创建 skill
+├── python3 ~/.lingguard/skills/builtin/skill-creator/scripts/create_skill.py \
+│   -n my-skill -t with-script -o ~/.lingguard/skills/
 
 Step 2: 编辑 SKILL.md 和脚本
 ├── 修改描述、触发关键词
 ├── 编写功能逻辑
 
-Step 3: 验证格式
-├── python3 scripts/validate_skill.py -p ./my-skill
+Step 3: 验证格式（可选）
+├── python3 ~/.lingguard/skills/builtin/skill-creator/scripts/validate_skill.py \
+│   -p ~/.lingguard/skills/my-skill
 
-Step 4: 测试和安装
-├── 复制到 ~/.lingguard/skills/
-└── 开始新会话加载 skill
+Step 4: 开始新会话
+└── 新 skill 自动加载
 ```
 
 ## Skill 类型选择
@@ -132,7 +136,14 @@ Step 4: 测试和安装
 
 ## 注意事项
 
-- 创建后需要复制到 `~/.lingguard/skills/` 才能使用
+- **创建位置**：新 skill 直接创建在 `~/.lingguard/skills/`，创建后立即可用
 - 修改 skill 后需要重新开始会话
-- Skill 名称冲突时，后加载的会覆盖先加载的
-- 建议先在 workspace 测试，再安装到系统
+- Skill 名称冲突时，用户 skill 会覆盖内置 skill
+- 使用 `--force` 参数可以覆盖已存在的 skill
+
+## Skill 存放位置
+
+| 位置 | 说明 |
+|------|------|
+| `~/.lingguard/skills/builtin/` | 内置 skill（只读） |
+| `~/.lingguard/skills/` | 用户 skill 目录，新 skill 存放这里 |

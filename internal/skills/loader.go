@@ -67,9 +67,10 @@ func (l *Loader) isDisabled(name string) bool {
 }
 
 // ListSkills 列出所有可用技能
+// 后加载的 skill 会覆盖先加载的同名 skill（用户 skill 覆盖内置 skill）
 func (l *Loader) ListSkills() ([]*Skill, error) {
-	skills := make([]*Skill, 0)
-	seen := make(map[string]bool) // 用于去重
+	// 使用 map 存储，后加载的会覆盖先加载的
+	skillMap := make(map[string]*Skill)
 
 	// 加载所有内置技能目录
 	for _, dir := range l.builtinDirs {
@@ -81,28 +82,31 @@ func (l *Loader) ListSkills() ([]*Skill, error) {
 			logger.Warn("Failed to load builtin skills", "dir", dir, "error", err)
 			continue
 		}
-		// 去重：只添加未 seen 的技能，并过滤禁用的技能
+		// 添加到 map（后加载的会覆盖先加载的）
 		for _, s := range builtinSkills {
-			if !seen[s.Name] && !l.isDisabled(s.Name) {
-				seen[s.Name] = true
-				skills = append(skills, s)
+			if !l.isDisabled(s.Name) {
+				skillMap[s.Name] = s
 			}
 		}
 	}
 
-	// 加载工作区技能
+	// 加载工作区技能（可覆盖内置技能）
 	if l.workspace != "" {
 		workspaceSkills, err := l.loadFromDir(l.workspace)
 		if err != nil {
 			logger.Warn("failed to load workspace skills", "error", err)
 		}
-		// 去重：工作区技能可以覆盖内置技能，并过滤禁用的技能
 		for _, s := range workspaceSkills {
-			if !seen[s.Name] && !l.isDisabled(s.Name) {
-				seen[s.Name] = true
-				skills = append(skills, s)
+			if !l.isDisabled(s.Name) {
+				skillMap[s.Name] = s
 			}
 		}
+	}
+
+	// 转换为切片
+	skills := make([]*Skill, 0, len(skillMap))
+	for _, s := range skillMap {
+		skills = append(skills, s)
 	}
 
 	// 如果没有加载到任何技能，记录警告

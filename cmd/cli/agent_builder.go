@@ -77,9 +77,7 @@ func (b *AgentBuilder) InitSkills(verbose bool) {
 	home, _ := os.UserHomeDir()
 
 	// 内置技能目录
-	execPath, _ := os.Executable()
-	execDir := filepath.Dir(execPath)
-	builtinDir := filepath.Join(execDir, "skills", "builtin")
+	builtinDir := filepath.Join(home, ".lingguard", "skills", "builtin")
 	if _, err := os.Stat(builtinDir); err == nil {
 		skillDirs = append(skillDirs, builtinDir)
 		if verbose {
@@ -88,19 +86,11 @@ func (b *AgentBuilder) InitSkills(verbose bool) {
 	}
 
 	// 用户技能目录
-	userSkillsDir := filepath.Join(home, ".lingguard", "skills", "builtin")
+	userSkillsDir := filepath.Join(home, ".lingguard", "skills")
 	if _, err := os.Stat(userSkillsDir); err == nil {
 		skillDirs = append(skillDirs, userSkillsDir)
 		if verbose {
 			fmt.Printf("User skills: %s\n", userSkillsDir)
-		}
-	}
-
-	// 工作区技能目录 (ClawHub 安装的技能)
-	workspaceSkillsDir := filepath.Join(home, ".lingguard", "workspace", "skills")
-	if _, err := os.Stat(workspaceSkillsDir); err == nil {
-		if verbose {
-			fmt.Printf("Workspace skills: %s\n", workspaceSkillsDir)
 		}
 	}
 
@@ -113,8 +103,8 @@ func (b *AgentBuilder) InitSkills(verbose bool) {
 		disabledSkills = append(disabledSkills, "clawhub")
 	}
 
-	if len(skillDirs) > 0 || workspaceSkillsDir != "" {
-		b.skillsLoader = skills.NewLoader(skillDirs, workspaceSkillsDir, disabledSkills)
+	if len(skillDirs) > 0 {
+		b.skillsLoader = skills.NewLoader(skillDirs, "", disabledSkills)
 	}
 }
 
