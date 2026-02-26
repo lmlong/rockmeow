@@ -20,13 +20,13 @@ metadata: {"nanobot":{"emoji":"🛠️","requires":{"bins":["python3"]}}}
 
 ### 1. 创建新 Skill
 
-**重要**：新创建的 skill 直接存放在 `~/.lingguard/skills/` 目录
+**重要**：新创建的 skill 存放在 `~/.lingguard/workspace/skills/` 目录
 
 ```bash
-python3 ~/.lingguard/skills/builtin/skill-creator/scripts/create_skill.py \
+python3 ~/.lingguard/skills/skill-creator/scripts/create_skill.py \
   --name my-skill \
   --type basic \
-  --output ~/.lingguard/skills/
+  --output ~/.lingguard/workspace/skills/
 ```
 
 **参数说明：**
@@ -41,8 +41,8 @@ python3 ~/.lingguard/skills/builtin/skill-creator/scripts/create_skill.py \
 ### 2. 验证 Skill 格式
 
 ```bash
-python3 ~/.lingguard/skills/builtin/skill-creator/scripts/validate_skill.py \
-  --path ~/.lingguard/skills/my-skill
+python3 ~/.lingguard/skills/skill-creator/scripts/validate_skill.py \
+  --path ~/.lingguard/workspace/skills/my-skill
 ```
 
 **参数说明：**
@@ -53,22 +53,22 @@ python3 ~/.lingguard/skills/builtin/skill-creator/scripts/validate_skill.py \
 
 ### 3. 编辑和测试
 
-创建后直接编辑 `~/.lingguard/skills/my-skill/SKILL.md`，新会话自动加载。
+创建后直接编辑 `~/.lingguard/workspace/skills/my-skill/SKILL.md`，新会话自动加载。
 
 ## 使用流程
 
 ```
 Step 1: 创建 skill
-├── python3 ~/.lingguard/skills/builtin/skill-creator/scripts/create_skill.py \
-│   -n my-skill -t with-script -o ~/.lingguard/skills/
+├── python3 ~/.lingguard/skills/skill-creator/scripts/create_skill.py \
+│   -n my-skill -t with-script -o ~/.lingguard/workspace/skills/
 
 Step 2: 编辑 SKILL.md 和脚本
 ├── 修改描述、触发关键词
 ├── 编写功能逻辑
 
 Step 3: 验证格式（可选）
-├── python3 ~/.lingguard/skills/builtin/skill-creator/scripts/validate_skill.py \
-│   -p ~/.lingguard/skills/my-skill
+├── python3 ~/.lingguard/skills/skill-creator/scripts/validate_skill.py \
+│   -p ~/.lingguard/workspace/skills/my-skill
 
 Step 4: 开始新会话
 └── 新 skill 自动加载
@@ -136,7 +136,7 @@ Step 4: 开始新会话
 
 ## 注意事项
 
-- **创建位置**：新 skill 直接创建在 `~/.lingguard/skills/`，创建后立即可用
+- **创建位置**：新 skill 创建在 `~/.lingguard/workspace/skills/`，新会话自动加载
 - 修改 skill 后需要重新开始会话
 - Skill 名称冲突时，用户 skill 会覆盖内置 skill
 - 使用 `--force` 参数可以覆盖已存在的 skill
@@ -145,5 +145,5 @@ Step 4: 开始新会话
 
 | 位置 | 说明 |
 |------|------|
-| `~/.lingguard/skills/builtin/` | 内置 skill（只读） |
-| `~/.lingguard/skills/` | 用户 skill 目录，新 skill 存放这里 |
+| `~/.lingguard/skills/` | 内置 skill |
+| `~/.lingguard/workspace/skills/` | 用户 skill 目录，新 skill 存放这里 |

@@ -77,20 +77,20 @@ func (b *AgentBuilder) InitSkills(verbose bool) {
 	home, _ := os.UserHomeDir()
 
 	// 内置技能目录
-	builtinDir := filepath.Join(home, ".lingguard", "skills", "builtin")
-	if _, err := os.Stat(builtinDir); err == nil {
-		skillDirs = append(skillDirs, builtinDir)
+	skillsDir := filepath.Join(home, ".lingguard", "skills")
+	if _, err := os.Stat(skillsDir); err == nil {
+		skillDirs = append(skillDirs, skillsDir)
 		if verbose {
-			fmt.Printf("Built-in skills: %s\n", builtinDir)
+			fmt.Printf("Built-in skills: %s\n", skillsDir)
 		}
 	}
 
-	// 用户技能目录
-	userSkillsDir := filepath.Join(home, ".lingguard", "skills")
-	if _, err := os.Stat(userSkillsDir); err == nil {
-		skillDirs = append(skillDirs, userSkillsDir)
+	// 工作区技能目录（用户创建的 skill，可覆盖内置 skill）
+	workspaceSkillsDir := filepath.Join(home, ".lingguard", "workspace", "skills")
+	if _, err := os.Stat(workspaceSkillsDir); err == nil {
+		skillDirs = append(skillDirs, workspaceSkillsDir)
 		if verbose {
-			fmt.Printf("User skills: %s\n", userSkillsDir)
+			fmt.Printf("Workspace skills: %s\n", workspaceSkillsDir)
 		}
 	}
 

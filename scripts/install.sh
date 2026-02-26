@@ -96,12 +96,12 @@ fi
 
 # 4. 安装技能目录
 echo "[4/5] 安装技能目录..."
-if [ -d "skills/builtin" ]; then
-    mkdir -p "${SKILLS_DIR}/builtin"
-    cp -r skills/builtin/* "${SKILLS_DIR}/builtin/" 2>/dev/null || true
-    echo "  ✓ 已安装内置技能到 ${SKILLS_DIR}/builtin"
+if [ -d "skills" ]; then
+    mkdir -p "${SKILLS_DIR}"
+    cp -r skills/* "${SKILLS_DIR}/" 2>/dev/null || true
+    echo "  ✓ 已安装内置技能到 ${SKILLS_DIR}"
 else
-    echo "  ! skills/builtin 目录不存在，跳过"
+    echo "  ! skills 目录不存在，跳过"
 fi
 
 # 5. 安装服务（可选）
