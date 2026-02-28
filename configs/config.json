@@ -1,7 +1,7 @@
 {
   "providers": {
     "glm": {
-      "apiKey": "xxxxxxxx",
+      "apiKey": "aa1d0dc2e27c4eaa80a9772536d2031c.BGqk7a4NgHcCPxXR",
       "apiBase": "https://open.bigmodel.cn/api/anthropic",
       "model": "glm-5",
       "timeout": 120

@@ -1,6 +1,6 @@
 #!/bin/bash
-# LingGuard 安装脚本
-# 用法: make install 或 sudo ./scripts/install.sh
+# LingGuard 安装/更新脚本
+# 用法: ./scripts/install.sh [--restart]
 # 支持: Linux (systemd), macOS (launchd)
 
 set -e
@@ -11,6 +11,7 @@ BIN_NAME="lingguard"
 SERVICE_NAME="lingguard"
 CONFIG_DIR="${HOME}/.lingguard"
 SKILLS_DIR="${CONFIG_DIR}/skills"
+FORCE_RESTART="${1:-}"
 
 # 检测操作系统
 OS="$(uname -s)"
@@ -20,32 +21,75 @@ case "$OS" in
     *)       echo "不支持的操作系统: $OS"; exit 1 ;;
 esac
 
-echo "=== LingGuard 安装 ==="
+# 检查是否以 root 运行（用于系统级安装）
+if [ "$EUID" -eq 0 ]; then
+    CONFIG_DIR="/root/.lingguard"
+    SKILLS_DIR="${CONFIG_DIR}/skills"
+fi
+
+# 检测是否为更新模式
+IS_UPDATE="false"
+if [ -f "${PREFIX}/bin/${BIN_NAME}" ]; then
+    IS_UPDATE="true"
+fi
+
+# 显示标题
+if [ "$IS_UPDATE" = "true" ]; then
+    echo "=== LingGuard 更新 ==="
+else
+    echo "=== LingGuard 安装 ==="
+fi
 echo "平台: $PLATFORM"
 echo "PREFIX: $PREFIX"
 echo "CONFIG_DIR: $CONFIG_DIR"
+echo "模式: $([ "$IS_UPDATE" = "true" ] && echo "更新" || echo "新安装")"
 echo ""
-
-# 检查是否以 root 运行（用于系统级安装）
-if [ "$EUID" -eq 0 ]; then
-    # root 用户，使用 /root 作为 HOME
-    CONFIG_DIR="/root/.lingguard"
-    SKILLS_DIR="${CONFIG_DIR}/skills"
-    echo "检测到 root 用户，配置目录: $CONFIG_DIR"
-fi
 
 # 1. 安装二进制文件
 echo "[1/5] 安装二进制文件..."
 mkdir -p "${PREFIX}/bin"
-install -m 755 lingguard "${PREFIX}/bin/${BIN_NAME}"
 
-# macOS: 移除隔离属性，允许运行未签名应用
+# 查找二进制文件
+BIN_FILE=""
+if [ -f "lingguard" ] && [ ! -d "lingguard" ]; then
+    BIN_FILE="lingguard"
+elif [ -f "lingguard/lingguard" ]; then
+    BIN_FILE="lingguard/lingguard"
+else
+    for f in lingguard lingguard.exe; do
+        if [ -f "$f" ] && [ ! -d "$f" ]; then
+            BIN_FILE="$f"
+            break
+        fi
+    done
+fi
+
+if [ -z "$BIN_FILE" ]; then
+    echo "错误: 找不到 lingguard 二进制文件"
+    echo "请确保在解压后的目录中运行此脚本"
+    echo ""
+    echo "当前目录内容:"
+    ls -la
+    exit 1
+fi
+
+# 停止服务（更新模式）
+if [ "$IS_UPDATE" = "true" ] && [ "$PLATFORM" = "linux" ]; then
+    echo "  停止运行中的服务..."
+    if [ "$EUID" -eq 0 ]; then
+        systemctl stop ${SERVICE_NAME} 2>/dev/null || true
+    else
+        systemctl --user stop ${SERVICE_NAME} 2>/dev/null || true
+    fi
+fi
+
+install -m 755 "${BIN_FILE}" "${PREFIX}/bin/${BIN_NAME}"
+
+# macOS: 移除隔离属性
 if [ "$PLATFORM" = "macos" ]; then
     xattr -cr "${PREFIX}/bin/${BIN_NAME}" 2>/dev/null || true
-    echo "  ✓ 已安装到 ${PREFIX}/bin/${BIN_NAME} (已移除隔离属性)"
-else
-    echo "  ✓ 已安装到 ${PREFIX}/bin/${BIN_NAME}"
 fi
+echo "  ✓ 已安装到 ${PREFIX}/bin/${BIN_NAME}"
 
 # 2. 创建配置目录
 echo "[2/5] 创建配置目录..."
@@ -56,26 +100,26 @@ mkdir -p "${CONFIG_DIR}/cron"
 mkdir -p "${CONFIG_DIR}/logs"
 mkdir -p "${CONFIG_DIR}/locks"
 mkdir -p "${CONFIG_DIR}/moltbook"
-# 清理旧锁文件
 rm -f "${CONFIG_DIR}/locks/"*.lock 2>/dev/null || true
 echo "  ✓ 已创建 ${CONFIG_DIR}"
 
-# 2.1 安装 Moltbook 凭证（如果存在）
+# 2.1 安装 Moltbook 凭证（如果存在且不存在）
 if [ -f "configs/moltbook/credentials.json" ]; then
     if [ ! -f "${CONFIG_DIR}/moltbook/credentials.json" ]; then
         cp configs/moltbook/credentials.json "${CONFIG_DIR}/moltbook/"
-        echo "  ✓ 已安装 Moltbook 凭证到 ${CONFIG_DIR}/moltbook/credentials.json"
+        echo "  ✓ 已安装 Moltbook 凭证"
     else
-        echo "  ! ${CONFIG_DIR}/moltbook/credentials.json 已存在，保留现有凭证"
+        echo "  ! Moltbook 凭证已存在，保留"
     fi
 fi
 
-# 3. 安装配置文件（如果不存在）
+# 3. 安装配置文件（仅新安装）
 echo "[3/5] 安装配置文件..."
-if [ ! -f "${CONFIG_DIR}/config.json" ]; then
-    # 使用 configs/config.json 作为模板
+if [ "$IS_UPDATE" = "true" ]; then
+    echo "  - 更新模式，跳过配置文件"
+elif [ ! -f "${CONFIG_DIR}/config.json" ]; then
+    # 新安装：创建配置文件
     if [ -f "configs/config.json" ]; then
-        # 复制并调整配置
         cat configs/config.json | \
             sed "s|\"workspace\": *\"[^\"]*\"|\"workspace\": \"${CONFIG_DIR}/workspace\"|g" | \
             sed "s|\"storePath\": *\"[^\"]*\"|\"storePath\": \"${CONFIG_DIR}/cron/jobs.json\"|g" | \
@@ -87,24 +131,40 @@ if [ ! -f "${CONFIG_DIR}/config.json" ]; then
         echo "  ! configs/config.json 不存在，跳过"
     fi
 else
-    echo "  ! ${CONFIG_DIR}/config.json 已存在，保留现有配置"
-    # 检查是否需要更新 opencode 配置
-    if ! grep -q '"opencode"' "${CONFIG_DIR}/config.json" 2>/dev/null; then
-        echo "  ! 建议手动添加 opencode 配置到 tools 部分"
-    fi
+    echo "  ! 配置文件已存在，跳过"
 fi
 
-# 4. 安装技能目录
+# 4. 更新技能目录
 echo "[4/5] 安装技能目录..."
 if [ -d "skills" ]; then
     mkdir -p "${SKILLS_DIR}"
-    cp -r skills/* "${SKILLS_DIR}/" 2>/dev/null || true
-    echo "  ✓ 已安装内置技能到 ${SKILLS_DIR}"
+
+    # 更新模式：先备份用户自定义技能
+    if [ "$IS_UPDATE" = "true" ]; then
+        # 获取内置技能列表
+        BUILTIN_SKILLS=""
+        if [ -d "skills" ]; then
+            BUILTIN_SKILLS=$(ls -1 skills/ 2>/dev/null)
+        fi
+
+        # 更新内置技能（覆盖）
+        for skill in $BUILTIN_SKILLS; do
+            if [ -d "skills/${skill}" ]; then
+                rm -rf "${SKILLS_DIR}/${skill}" 2>/dev/null || true
+                cp -r "skills/${skill}" "${SKILLS_DIR}/"
+            fi
+        done
+        echo "  ✓ 已更新内置技能"
+    else
+        # 新安装：直接复制所有技能
+        cp -r skills/* "${SKILLS_DIR}/" 2>/dev/null || true
+        echo "  ✓ 已安装内置技能到 ${SKILLS_DIR}"
+    fi
 else
     echo "  ! skills 目录不存在，跳过"
 fi
 
-# 5. 安装服务（可选）
+# 5. 安装/更新服务
 echo "[5/5] 安装自动启动服务..."
 
 if [ "$PLATFORM" = "macos" ]; then
@@ -116,23 +176,23 @@ if [ "$PLATFORM" = "macos" ]; then
             sed "s|{{HOME}}|${HOME}|g" | \
             sed "s|{{BIN}}|${PREFIX}/bin/lingguard|g" \
             > "${PLIST_DIR}/com.lingguard.plist"
-        echo "  ✓ 已安装 launchd 服务"
-        echo ""
-        echo "启用并启动服务:"
-        echo "  launchctl load ${PLIST_DIR}/com.lingguard.plist"
-        echo ""
-        echo "停止服务:"
-        echo "  launchctl unload ${PLIST_DIR}/com.lingguard.plist"
-        echo ""
-        echo "查看状态:"
-        echo "  launchctl list | grep lingguard"
+
+        if [ "$IS_UPDATE" = "true" ]; then
+            launchctl unload "${PLIST_DIR}/com.lingguard.plist" 2>/dev/null || true
+            launchctl load "${PLIST_DIR}/com.lingguard.plist"
+            echo "  ✓ 已重启 launchd 服务"
+        else
+            echo "  ✓ 已安装 launchd 服务"
+            echo ""
+            echo "启动服务:"
+            echo "  launchctl load ${PLIST_DIR}/com.lingguard.plist"
+        fi
     else
         echo "  ! scripts/com.lingguard.plist 不存在，跳过"
     fi
 else
     # Linux: 使用 systemd
     if [ -f "scripts/lingguard.service" ]; then
-        # 创建服务文件，替换配置路径
         if [ "$EUID" -eq 0 ]; then
             # 系统级安装
             SERVICE_DIR="/etc/systemd/system"
@@ -141,14 +201,20 @@ else
                 sed "s|{{HOME}}|/root|g" | \
                 sed "s|{{BIN}}|${PREFIX}/bin/lingguard|g" \
                 > "${SERVICE_DIR}/${SERVICE_NAME}.service"
-            # 系统级服务需要添加 User 字段
             sed -i '/WorkingDirectory/a User=root' "${SERVICE_DIR}/${SERVICE_NAME}.service"
+
             systemctl daemon-reload
-            echo "  ✓ 已安装系统级 systemd 服务"
+            systemctl enable ${SERVICE_NAME}
+
+            if [ "$IS_UPDATE" = "true" ]; then
+                systemctl start ${SERVICE_NAME}
+                echo "  ✓ 已重启系统级 systemd 服务"
+            else
+                systemctl start ${SERVICE_NAME}
+                echo "  ✓ 已安装并启动系统级 systemd 服务"
+            fi
             echo ""
-            echo "启用并启动服务:"
-            echo "  sudo systemctl enable lingguard"
-            echo "  sudo systemctl start lingguard"
+            systemctl status ${SERVICE_NAME} --no-pager || true
         else
             # 用户级安装
             SERVICE_DIR="${HOME}/.config/systemd/user"
@@ -157,29 +223,52 @@ else
                 sed "s|{{HOME}}|${HOME}|g" | \
                 sed "s|{{BIN}}|${PREFIX}/bin/lingguard|g" \
                 > "${SERVICE_DIR}/${SERVICE_NAME}.service"
-            echo "  ✓ 已安装用户级 systemd 服务"
+
+            systemctl --user daemon-reload
+            systemctl --user enable ${SERVICE_NAME}
+
+            if [ "$IS_UPDATE" = "true" ]; then
+                systemctl --user start ${SERVICE_NAME}
+                echo "  ✓ 已重启用户级 systemd 服务"
+            else
+                systemctl --user start ${SERVICE_NAME}
+                echo "  ✓ 已安装并启动用户级 systemd 服务"
+            fi
             echo ""
-            echo "注意: 用户服务需要启用 linger 才能在登录前运行"
-            echo "  loginctl enable-linger \$USER"
-            echo ""
-            echo "启用并启动服务:"
-            echo "  systemctl --user daemon-reload"
-            echo "  systemctl --user enable lingguard"
-            echo "  systemctl --user start lingguard"
+            systemctl --user status ${SERVICE_NAME} --no-pager || true
         fi
     else
         echo "  ! scripts/lingguard.service 不存在，跳过"
     fi
 fi
 
+# 完成
 echo ""
-echo "=== 安装完成 ==="
+if [ "$IS_UPDATE" = "true" ]; then
+    echo "=== 更新完成 ==="
+else
+    echo "=== 安装完成 ==="
+fi
 echo ""
 echo "配置文件: ${CONFIG_DIR}/config.json"
 echo "工作目录: ${CONFIG_DIR}/workspace"
 echo "日志目录: ${CONFIG_DIR}/logs"
 echo ""
-echo "快速开始:"
+echo "服务管理:"
+if [ "$PLATFORM" = "linux" ]; then
+    if [ "$EUID" -eq 0 ]; then
+        echo "  systemctl status lingguard    # 查看状态"
+        echo "  systemctl restart lingguard   # 重启服务"
+        echo "  systemctl stop lingguard      # 停止服务"
+        echo "  journalctl -u lingguard -f    # 查看日志"
+    else
+        echo "  systemctl --user status lingguard    # 查看状态"
+        echo "  systemctl --user restart lingguard   # 重启服务"
+        echo "  systemctl --user stop lingguard      # 停止服务"
+        echo "  journalctl --user -u lingguard -f    # 查看日志"
+    fi
+fi
+echo ""
+echo "其他命令:"
 echo "  lingguard agent        # 交互模式"
-echo "  lingguard gateway      # 启动网关"
 echo "  lingguard --help       # 查看帮助"

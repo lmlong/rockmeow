@@ -10,7 +10,7 @@ CMD_DIR := cmd/lingguard
 
 # 构建信息
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+BUILD_TIME := $(shell date '+%Y%m%d%H%M%S')
 LDFLAGS := -ldflags "-s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
 
 # 安装配置
@@ -90,29 +90,29 @@ package-linux: package-linux-amd64 package-linux-arm64
 
 package-linux-amd64:
 	@echo "打包 Linux amd64..."
-	@mkdir -p dist/pkg
-	cp -r configs dist/pkg/
-	cp -r scripts dist/pkg/
-	cp -r skills dist/pkg/
+	@mkdir -p dist/$(PROJECT)-linux-amd64
+	cp -r configs dist/$(PROJECT)-linux-amd64/
+	cp -r scripts dist/$(PROJECT)-linux-amd64/
+	cp -r skills dist/$(PROJECT)-linux-amd64/
 	@# 移除代理设置（打包发布时不包含本地代理配置）
-	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/pkg/scripts/lingguard.service
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/pkg/$(PROJECT) ./$(CMD_DIR)
-	cd dist && tar -czf $(PROJECT)-$(VERSION)-linux-amd64.tar.gz -C pkg .
-	@echo "已创建: dist/$(PROJECT)-$(VERSION)-linux-amd64.tar.gz"
-	@rm -rf dist/pkg
+	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/$(PROJECT)-linux-amd64/scripts/lingguard.service
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/$(PROJECT)-linux-amd64/$(PROJECT) ./$(CMD_DIR)
+	cd dist && tar -czf $(PROJECT)-linux-amd64-$(BUILD_TIME).tar.gz $(PROJECT)-linux-amd64
+	@echo "已创建: dist/$(PROJECT)-linux-amd64-$(BUILD_TIME).tar.gz"
+	@rm -rf dist/$(PROJECT)-linux-amd64
 
 package-linux-arm64:
 	@echo "打包 Linux arm64..."
-	@mkdir -p dist/pkg
-	cp -r configs dist/pkg/
-	cp -r scripts dist/pkg/
-	cp -r skills dist/pkg/
+	@mkdir -p dist/$(PROJECT)-linux-arm64
+	cp -r configs dist/$(PROJECT)-linux-arm64/
+	cp -r scripts dist/$(PROJECT)-linux-arm64/
+	cp -r skills dist/$(PROJECT)-linux-arm64/
 	@# 移除代理设置（打包发布时不包含本地代理配置）
-	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/pkg/scripts/lingguard.service
-	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/pkg/$(PROJECT) ./$(CMD_DIR)
-	cd dist && tar -czf $(PROJECT)-$(VERSION)-linux-arm64.tar.gz -C pkg .
-	@echo "已创建: dist/$(PROJECT)-$(VERSION)-linux-arm64.tar.gz"
-	@rm -rf dist/pkg
+	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/$(PROJECT)-linux-arm64/scripts/lingguard.service
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/$(PROJECT)-linux-arm64/$(PROJECT) ./$(CMD_DIR)
+	cd dist && tar -czf $(PROJECT)-linux-arm64-$(BUILD_TIME).tar.gz $(PROJECT)-linux-arm64
+	@echo "已创建: dist/$(PROJECT)-linux-arm64-$(BUILD_TIME).tar.gz"
+	@rm -rf dist/$(PROJECT)-linux-arm64
 
 # ============================================================
 # macOS 打包
@@ -121,29 +121,29 @@ package-darwin: package-darwin-amd64 package-darwin-arm64
 
 package-darwin-amd64:
 	@echo "打包 macOS amd64 (Intel Mac)..."
-	@mkdir -p dist/pkg
-	cp -r configs dist/pkg/
-	cp -r scripts dist/pkg/
-	cp -r skills dist/pkg/
+	@mkdir -p dist/$(PROJECT)-darwin-amd64
+	cp -r configs dist/$(PROJECT)-darwin-amd64/
+	cp -r scripts dist/$(PROJECT)-darwin-amd64/
+	cp -r skills dist/$(PROJECT)-darwin-amd64/
 	@# 移除代理设置（打包发布时不包含本地代理配置）
-	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/pkg/scripts/lingguard.service
-	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o dist/pkg/$(PROJECT) ./$(CMD_DIR)
-	cd dist && tar -czf $(PROJECT)-$(VERSION)-darwin-amd64.tar.gz -C pkg .
-	@echo "已创建: dist/$(PROJECT)-$(VERSION)-darwin-amd64.tar.gz"
-	@rm -rf dist/pkg
+	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/$(PROJECT)-darwin-amd64/scripts/lingguard.service
+	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o dist/$(PROJECT)-darwin-amd64/$(PROJECT) ./$(CMD_DIR)
+	cd dist && tar -czf $(PROJECT)-darwin-amd64-$(BUILD_TIME).tar.gz $(PROJECT)-darwin-amd64
+	@echo "已创建: dist/$(PROJECT)-darwin-amd64-$(BUILD_TIME).tar.gz"
+	@rm -rf dist/$(PROJECT)-darwin-amd64
 
 package-darwin-arm64:
 	@echo "打包 macOS arm64 (Apple Silicon M1/M2/M3)..."
-	@mkdir -p dist/pkg
-	cp -r configs dist/pkg/
-	cp -r scripts dist/pkg/
-	cp -r skills dist/pkg/
+	@mkdir -p dist/$(PROJECT)-darwin-arm64
+	cp -r configs dist/$(PROJECT)-darwin-arm64/
+	cp -r scripts dist/$(PROJECT)-darwin-arm64/
+	cp -r skills dist/$(PROJECT)-darwin-arm64/
 	@# 移除代理设置（打包发布时不包含本地代理配置）
-	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/pkg/scripts/lingguard.service
-	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o dist/pkg/$(PROJECT) ./$(CMD_DIR)
-	cd dist && tar -czf $(PROJECT)-$(VERSION)-darwin-arm64.tar.gz -C pkg .
-	@echo "已创建: dist/$(PROJECT)-$(VERSION)-darwin-arm64.tar.gz"
-	@rm -rf dist/pkg
+	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/$(PROJECT)-darwin-arm64/scripts/lingguard.service
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o dist/$(PROJECT)-darwin-arm64/$(PROJECT) ./$(CMD_DIR)
+	cd dist && tar -czf $(PROJECT)-darwin-arm64-$(BUILD_TIME).tar.gz $(PROJECT)-darwin-arm64
+	@echo "已创建: dist/$(PROJECT)-darwin-arm64-$(BUILD_TIME).tar.gz"
+	@rm -rf dist/$(PROJECT)-darwin-arm64
 
 # ============================================================
 # Windows 打包
@@ -152,29 +152,29 @@ package-windows: package-windows-amd64 package-windows-arm64
 
 package-windows-amd64:
 	@echo "打包 Windows amd64..."
-	@mkdir -p dist/pkg
-	cp -r configs dist/pkg/
-	cp -r scripts dist/pkg/
-	cp -r skills dist/pkg/
+	@mkdir -p dist/$(PROJECT)-windows-amd64
+	cp -r configs dist/$(PROJECT)-windows-amd64/
+	cp -r scripts dist/$(PROJECT)-windows-amd64/
+	cp -r skills dist/$(PROJECT)-windows-amd64/
 	@# 移除代理设置（打包发布时不包含本地代理配置）
-	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/pkg/scripts/lingguard.service
-	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o dist/pkg/$(PROJECT).exe ./$(CMD_DIR)
-	cd dist && zip -r $(PROJECT)-$(VERSION)-windows-amd64.zip pkg/
-	@echo "已创建: dist/$(PROJECT)-$(VERSION)-windows-amd64.zip"
-	@rm -rf dist/pkg
+	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/$(PROJECT)-windows-amd64/scripts/lingguard.service
+	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o dist/$(PROJECT)-windows-amd64/$(PROJECT).exe ./$(CMD_DIR)
+	cd dist && zip -r $(PROJECT)-windows-amd64-$(BUILD_TIME).zip $(PROJECT)-windows-amd64
+	@echo "已创建: dist/$(PROJECT)-windows-amd64-$(BUILD_TIME).zip"
+	@rm -rf dist/$(PROJECT)-windows-amd64
 
 package-windows-arm64:
 	@echo "打包 Windows arm64..."
-	@mkdir -p dist/pkg
-	cp -r configs dist/pkg/
-	cp -r scripts dist/pkg/
-	cp -r skills dist/pkg/
+	@mkdir -p dist/$(PROJECT)-windows-arm64
+	cp -r configs dist/$(PROJECT)-windows-arm64/
+	cp -r scripts dist/$(PROJECT)-windows-arm64/
+	cp -r skills dist/$(PROJECT)-windows-arm64/
 	@# 移除代理设置（打包发布时不包含本地代理配置）
-	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/pkg/scripts/lingguard.service
-	GOOS=windows GOARCH=arm64 go build $(LDFLAGS) -o dist/pkg/$(PROJECT).exe ./$(CMD_DIR)
-	cd dist && zip -r $(PROJECT)-$(VERSION)-windows-arm64.zip pkg/
-	@echo "已创建: dist/$(PROJECT)-$(VERSION)-windows-arm64.zip"
-	@rm -rf dist/pkg
+	@sed -i '/HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY/d' dist/$(PROJECT)-windows-arm64/scripts/lingguard.service
+	GOOS=windows GOARCH=arm64 go build $(LDFLAGS) -o dist/$(PROJECT)-windows-arm64/$(PROJECT).exe ./$(CMD_DIR)
+	cd dist && zip -r $(PROJECT)-windows-arm64-$(BUILD_TIME).zip $(PROJECT)-windows-arm64
+	@echo "已创建: dist/$(PROJECT)-windows-arm64-$(BUILD_TIME).zip"
+	@rm -rf dist/$(PROJECT)-windows-arm64
 
 # ============================================================
 # Docker 构建
