@@ -101,6 +101,16 @@ var PROVIDERS = []ProviderSpec{
 		SkipPrefixes:   []string{"dashscope/", "qwen/"},
 	},
 	{
+		Name:           "qwencoder",
+		Keywords:       []string{"qwen3-coder", "qwen-coder", "coding.dashscope"},
+		DisplayName:    "Qwen Coder (阿里云编程助手)",
+		DefaultAPIBase: "https://coding.dashscope.aliyuncs.com/v1",
+		DefaultModel:   "qwen3-coder-plus",
+		IsAnthropic:    false,
+		APIKeyPrefix:   "sk-sp-",
+		APIBaseKeyword: "coding.dashscope",
+	},
+	{
 		Name:           "glm",
 		Keywords:       []string{"glm", "chatglm", "codegeex", "zhipu"},
 		DisplayName:    "Zhipu GLM (智谱)",
