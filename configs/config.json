@@ -18,7 +18,8 @@
     "qwencoder": {
       "apiKey": "sk-sp-fd7641e16e5042e9957c3b31423a54e3",
       "apiBase": "https://coding.dashscope.aliyuncs.com/v1",
-      "model": "qwen3.5-plus"
+      "model": "qwen3.5-plus",
+      "timeout": 120
     }
   },
   "agents": {
