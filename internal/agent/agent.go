@@ -59,6 +59,7 @@ type Agent struct {
 	cronWrapper        CronWrapper            // 定时任务服务包装器
 	traceCollector     trace.Collector        // 追踪采集器，可选
 	sessionLockTimeout time.Duration          // 会话锁超时时间
+	steerMgr           *steerManager          // Steer 模式管理器
 }
 
 // NewAgent 创建新代理
@@ -156,6 +157,9 @@ func NewAgentWithMultimodalAndConfig(cfg *config.AgentsConfig, provider provider
 
 	// 初始化子代理管理器
 	agent.subagentMgr = subagent.NewSubagentManager(provider, toolRegistry, nil)
+
+	// 初始化 Steer 管理器
+	agent.steerMgr = newSteerManager()
 
 	return agent
 }
@@ -480,6 +484,12 @@ func (a *Agent) runLoop(ctx context.Context, sessionID string, messages []llm.Me
 
 // runLoopWithProvider 代理执行循环（指定 provider）
 func (a *Agent) runLoopWithProvider(ctx context.Context, sessionID string, messages []llm.Message, provider providers.Provider) (string, error) {
+	// 设置 steer 状态为执行中
+	if a.steerMgr != nil {
+		a.steerMgr.setExecuting(sessionID, true)
+		defer a.steerMgr.setExecuting(sessionID, false)
+	}
+
 	iterations := 0
 	maxIterations := a.config.MaxToolIterations
 	if maxIterations <= 0 {
@@ -488,6 +498,19 @@ func (a *Agent) runLoopWithProvider(ctx context.Context, sessionID string, messa
 
 	for iterations < maxIterations {
 		iterations++
+
+		// 检查是否有注入的消息（Steer 模式）
+		if a.steerMgr != nil {
+			if injected := a.steerMgr.checkInjection(sessionID); injected != nil {
+				// 将注入的消息添加到对话历史
+				injectedMsg := llm.Message{
+					Role:    "user",
+					Content: fmt.Sprintf("【补充说明】\n%s", injected.Content),
+				}
+				messages = append(messages, injectedMsg)
+				logger.Info("Injected message added to conversation", "session", sessionID, "content", injected.Content[:min(50, len(injected.Content))])
+			}
+		}
 
 		// 构建 LLM 请求
 		req := &llm.Request{
@@ -557,6 +580,20 @@ func (a *Agent) runLoopWithProvider(ctx context.Context, sessionID string, messa
 
 		// 检查是否有工具调用
 		if !resp.HasToolCalls() {
+			// 在结束前检查是否有注入的消息
+			// 如果有，继续循环处理这些消息
+			if a.steerMgr != nil {
+				if injected := a.steerMgr.checkInjection(sessionID); injected != nil {
+					// 将注入的消息添加到对话历史
+					injectedMsg := llm.Message{
+						Role:    "user",
+						Content: fmt.Sprintf("【补充说明】\n%s", injected.Content),
+					}
+					messages = append(messages, assistantMsg, injectedMsg)
+					logger.Info("Injected message retrieved before loop end (non-stream), continuing", "session", sessionID, "content", injected.Content[:min(50, len(injected.Content))])
+					continue // 继续循环，处理注入的消息
+				}
+			}
 			return resp.GetContent(), nil
 		}
 
@@ -600,6 +637,12 @@ func (a *Agent) runLoopStream(ctx context.Context, sessionID string, messages []
 
 // runLoopStreamWithProvider 流式代理执行循环（指定 provider）
 func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string, messages []llm.Message, provider providers.Provider, callback stream.StreamCallback) error {
+	// 设置 steer 状态为执行中
+	if a.steerMgr != nil {
+		a.steerMgr.setExecuting(sessionID, true)
+		defer a.steerMgr.setExecuting(sessionID, false)
+	}
+
 	iterations := 0
 	maxIterations := a.config.MaxToolIterations
 	if maxIterations <= 0 {
@@ -620,6 +663,19 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 
 	for iterations < maxIterations {
 		iterations++
+
+		// 检查是否有注入的消息（Steer 模式）
+		if a.steerMgr != nil {
+			if injected := a.steerMgr.checkInjection(sessionID); injected != nil {
+				// 将注入的消息添加到对话历史
+				injectedMsg := llm.Message{
+					Role:    "user",
+					Content: fmt.Sprintf("【补充说明】\n%s", injected.Content),
+				}
+				messages = append(messages, injectedMsg)
+				logger.Info("Injected message added to conversation (stream)", "session", sessionID, "content", injected.Content[:min(50, len(injected.Content))])
+			}
+		}
 
 		// 构建 LLM 请求
 		req := &llm.Request{
@@ -756,6 +812,20 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 
 		// 检查是否有工具调用
 		if len(toolCalls) == 0 {
+			// 在结束前检查是否有注入的消息
+			// 如果有，继续循环处理这些消息
+			if a.steerMgr != nil {
+				if injected := a.steerMgr.checkInjection(sessionID); injected != nil {
+					// 将注入的消息添加到对话历史
+					injectedMsg := llm.Message{
+						Role:    "user",
+						Content: fmt.Sprintf("【补充说明】\n%s", injected.Content),
+					}
+					messages = append(messages, assistantMsg, injectedMsg)
+					logger.Info("Injected message retrieved before loop end, continuing", "session", sessionID, "content", injected.Content[:min(50, len(injected.Content))])
+					continue // 继续循环，处理注入的消息
+				}
+			}
 			callback(stream.NewDoneEvent())
 			return nil
 		}
@@ -839,3 +909,42 @@ func generateID() string {
 	return uuid.New().String()[:8]
 }
 
+// InjectMessage 实现 StreamInjector 接口
+// 向正在执行的对话注入消息（Steer 模式）
+func (a *Agent) InjectMessage(sessionID, content string, media []string) bool {
+	if a.steerMgr == nil {
+		return false
+	}
+	return a.steerMgr.Inject(sessionID, content, media)
+}
+
+// IsExecuting 实现 StreamInjector 接口
+// 检查指定会话是否正在执行
+func (a *Agent) IsExecuting(sessionID string) bool {
+	if a.steerMgr == nil {
+		return false
+	}
+	return a.steerMgr.IsExecuting(sessionID)
+}
+
+// DrainInjectionChannel 实现 StreamInjector 接口
+// 清空注入通道中的消息并返回，用于取回未被处理的消息
+func (a *Agent) DrainInjectionChannel(sessionID string) []session.InjectionMessage {
+	if a.steerMgr == nil {
+		return nil
+	}
+	// 调用 steerManager 的 DrainInjectionChannel 方法
+	internalMsgs := a.steerMgr.DrainInjectionChannel(sessionID)
+	if len(internalMsgs) == 0 {
+		return nil
+	}
+	// 转换为 session.InjectionMessage 类型
+	result := make([]session.InjectionMessage, 0, len(internalMsgs))
+	for _, msg := range internalMsgs {
+		result = append(result, session.InjectionMessage{
+			Content: msg.Content,
+			Media:   msg.Media,
+		})
+	}
+	return result
+}

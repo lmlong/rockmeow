@@ -13,6 +13,7 @@ import (
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/internal/cron"
 	"github.com/lingguard/internal/heartbeat"
+	"github.com/lingguard/internal/session"
 	"github.com/lingguard/internal/taskboard"
 	"github.com/lingguard/internal/tools"
 	"github.com/lingguard/internal/trace"
@@ -246,9 +247,18 @@ func runGateway() error {
 
 	// 创建消息处理器
 	baseAdapter := channels.NewAgentAdapter(ag)
-	contextAdapter := channels.NewContextAdapter(baseAdapter, cronWrapper)
+
+	// 创建 LaneManager 和 LaneAdapter（Steer 模式）
+	laneManager := session.NewLaneManager(ag)
+	laneAdapter := channels.NewLaneAdapter(laneManager, baseAdapter)
+
+	// 使用 ContextAdapter 包装 LaneAdapter
+	contextAdapter := channels.NewContextAdapter(laneAdapter, cronWrapper)
 	contextAdapter.SetMessageTool(messageTool)
+
 	var handler channels.MessageHandler = contextAdapter
+
+	logger.Info("Steer mode enabled", "feature", "session-lane")
 
 	// 获取工作目录（用于媒体文件存储）
 	workspace := cfg.Agents.Workspace
