@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync"
+	"time"
 
 	"github.com/lingguard/internal/providers"
 	"github.com/lingguard/internal/tools"
@@ -22,6 +23,11 @@ type SubagentManager struct {
 
 	// 结果通知通道
 	notify chan *Subagent
+
+	// 清理相关
+	ctx       context.Context
+	cancel    context.CancelFunc
+	cleanupTk *time.Ticker
 }
 
 // NewSubagentManager 创建子代理管理器
@@ -30,13 +36,23 @@ func NewSubagentManager(provider providers.Provider, toolRegistry *tools.Registr
 		config = DefaultSubagentConfig()
 	}
 
-	return &SubagentManager{
+	ctx, cancel := context.WithCancel(context.Background())
+
+	m := &SubagentManager{
 		provider:     provider,
 		toolRegistry: toolRegistry,
 		config:       config,
 		tasks:        make(map[string]*Subagent),
 		notify:       make(chan *Subagent, 100), // 带缓冲的通道
+		ctx:          ctx,
+		cancel:       cancel,
+		cleanupTk:    time.NewTicker(5 * time.Minute), // 每5分钟清理一次
 	}
+
+	// 启动自动清理 goroutine
+	go m.cleanupLoop()
+
+	return m
 }
 
 // Spawn 创建并启动后台子代理
@@ -72,6 +88,31 @@ func (m *SubagentManager) Spawn(ctx context.Context, task, context string) (*Sub
 	}()
 
 	return sub, nil
+}
+
+// cleanupLoop 定期清理已完成/失败的任务
+func (m *SubagentManager) cleanupLoop() {
+	for {
+		select {
+		case <-m.ctx.Done():
+			if m.cleanupTk != nil {
+				m.cleanupTk.Stop()
+			}
+			return
+		case <-m.cleanupTk.C:
+			cleared := m.Clear()
+			if cleared > 0 {
+				logger.Debug("SubagentManager auto cleanup", "cleared", cleared)
+			}
+		}
+	}
+}
+
+// Close 关闭管理器，停止清理 goroutine
+func (m *SubagentManager) Close() {
+	if m.cancel != nil {
+		m.cancel()
+	}
 }
 
 // createFilteredRegistry 创建过滤后的工具注册表

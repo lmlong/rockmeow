@@ -26,6 +26,9 @@ type Session struct {
 
 	// lockedAt 锁定时间，用于超时检测
 	lockedAt time.Time
+
+	// forceUnlock 强制解锁信号通道
+	forceUnlock chan struct{}
 }
 
 // Manager 会话管理器
@@ -60,6 +63,7 @@ func (m *Manager) GetOrCreate(key string) *Session {
 		Messages:  make([]*memory.Message, 0),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
+		forceUnlock: make(chan struct{}),
 	}
 	m.sessions[key] = s
 	logger.Info("Session created", "key", key)
@@ -116,9 +120,8 @@ func (s *Session) TryLockForProcessing() bool {
 	return false
 }
 
-// TryLockWithTimeout 尝试锁定会话，如果锁被持有超过 timeout 则返回 false
-// 注意：不再强制解锁，因为这违反 Go mutex 语义并可能导致数据竞争
-// 如果需要超时机制，应该在业务层实现取消逻辑
+// TryLockWithTimeout 尝试锁定会话，支持超时后强制解锁
+// timeout: 锁持有超时时间，超过后可被强制释放
 func (s *Session) TryLockWithTimeout(timeout time.Duration) bool {
 	// 首先尝试正常获取锁
 	if s.processingMu.TryLock() {
@@ -128,11 +131,18 @@ func (s *Session) TryLockWithTimeout(timeout time.Duration) bool {
 		return true
 	}
 
-	// 检查是否超时，用于日志记录和监控
+	// 检查是否超时，如果超时则强制解锁
 	if !s.lockedAt.IsZero() && time.Since(s.lockedAt) > timeout {
-		logger.Warn("Session lock held longer than timeout", "key", s.Key, "lockedAt", s.lockedAt, "timeout", timeout, "duration", time.Since(s.lockedAt))
-		// 不再强制解锁，返回 false 让调用者决定如何处理
-		// 可以选择等待或返回错误给用户
+		logger.Warn("Session lock timeout, force unlocking", "key", s.Key, "lockedAt", s.lockedAt, "timeout", timeout)
+		// 发送强制解锁信号
+		close(s.forceUnlock)
+		// 重新创建通道供下次使用
+		s.forceUnlock = make(chan struct{})
+		// 重置状态后重新尝试获取锁
+		s.isProcessing = false
+		s.lockedAt = time.Time{}
+		// 递归尝试获取锁
+		return s.TryLockWithTimeout(timeout)
 	}
 
 	logger.Warn("Session busy, lock failed", "key", s.Key, "lockedAt", s.lockedAt)
@@ -153,6 +163,11 @@ func (s *Session) UnlockAfterProcessing() {
 	s.lockedAt = time.Time{} // 清除锁定时间
 	s.processingMu.Unlock()
 	logger.Debug("Session unlocked", "key", s.Key, "lockedDuration", lockedDuration.Round(time.Millisecond))
+}
+
+// ForceUnlockChannel 返回强制解锁通道，用于监听解锁信号
+func (s *Session) ForceUnlockChannel() <-chan struct{} {
+	return s.forceUnlock
 }
 
 // IsProcessing 检查会话是否正在处理消息

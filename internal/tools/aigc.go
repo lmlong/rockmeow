@@ -980,13 +980,27 @@ client := httpclient.Default()
 	writer := multipart.NewWriter(&buf)
 
 	// 添加表单字段（顺序不重要，但 file 必须是最后一个）
-	_ = writer.WriteField("OSSAccessKeyId", data.OSSAccessKeyID)
-	_ = writer.WriteField("Signature", data.Signature)
-	_ = writer.WriteField("policy", data.Policy)
-	_ = writer.WriteField("key", key)
-	_ = writer.WriteField("x-oss-object-acl", data.XOSSObjectAcl)
-	_ = writer.WriteField("x-oss-forbid-overwrite", data.XOSSForbidOverwrite)
-	_ = writer.WriteField("success_action_status", "200")
+	if err := writer.WriteField("OSSAccessKeyId", data.OSSAccessKeyID); err != nil {
+		return "", fmt.Errorf("write OSSAccessKeyId field: %w", err)
+	}
+	if err := writer.WriteField("Signature", data.Signature); err != nil {
+		return "", fmt.Errorf("write Signature field: %w", err)
+	}
+	if err := writer.WriteField("policy", data.Policy); err != nil {
+		return "", fmt.Errorf("write policy field: %w", err)
+	}
+	if err := writer.WriteField("key", key); err != nil {
+		return "", fmt.Errorf("write key field: %w", err)
+	}
+	if err := writer.WriteField("x-oss-object-acl", data.XOSSObjectAcl); err != nil {
+		return "", fmt.Errorf("write x-oss-object-acl field: %w", err)
+	}
+	if err := writer.WriteField("x-oss-forbid-overwrite", data.XOSSForbidOverwrite); err != nil {
+		return "", fmt.Errorf("write x-oss-forbid-overwrite field: %w", err)
+	}
+	if err := writer.WriteField("success_action_status", "200"); err != nil {
+		return "", fmt.Errorf("write success_action_status field: %w", err)
+	}
 
 	// 添加文件（必须是最后一个）
 	part, err := writer.CreateFormFile("file", filename)

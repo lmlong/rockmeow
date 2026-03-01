@@ -2,6 +2,7 @@
 package logger
 
 import (
+	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -48,9 +49,11 @@ type Logger struct {
 	level       Level
 	format      string
 	file        *os.File
+	writer      *bufio.Writer // 缓冲写入器
 	filePath    string
 	currentSize int64
 	config      Config
+	stopSync    chan struct{} // 停止同步信号
 }
 
 var defaultLogger *Logger
@@ -67,9 +70,10 @@ func Init(level, format, output string) error {
 // InitWithConfig 使用完整配置初始化日志器
 func InitWithConfig(cfg Config) error {
 	l := &Logger{
-		level:  parseLevel(cfg.Level),
-		format: cfg.Format,
-		config: applyDefaults(cfg),
+		level:    parseLevel(cfg.Level),
+		format:   cfg.Format,
+		config:   applyDefaults(cfg),
+		stopSync: make(chan struct{}),
 	}
 
 	if l.config.Output != "" {
@@ -86,6 +90,9 @@ func InitWithConfig(cfg Config) error {
 		if err := l.openFile(); err != nil {
 			return err
 		}
+
+		// 启动定期同步 goroutine
+		go l.periodicSync()
 	}
 
 	defaultLogger = l
@@ -114,6 +121,7 @@ func (l *Logger) openFile() error {
 	}
 
 	l.file = f
+	l.writer = bufio.NewWriterSize(f, 4096) // 4KB 缓冲区
 	l.filePath = l.config.Output
 
 	// 获取当前文件大小
@@ -262,16 +270,15 @@ func (l *Logger) log(level Level, msg string, fields ...interface{}) {
 	}
 
 	// 输出到文件
-	if l.file != nil {
+	if l.file != nil && l.writer != nil {
 		// 检查是否需要轮转
 		if l.shouldRotate(len(output)) {
 			l.rotate()
 		}
 
-		n, _ := l.file.WriteString(output + "\n")
+		n, _ := l.writer.WriteString(output + "\n")
 		l.currentSize += int64(n)
-		// 立即刷新到磁盘，确保日志不丢失
-		l.file.Sync()
+		// 不再每次写入都 Sync，，改用定期同步（periodicSync）
 	}
 
 	// 同时输出到 stdout（调试用）
@@ -286,6 +293,10 @@ func (l *Logger) shouldRotate(newLen int) bool {
 
 // rotate 执行日志轮转
 func (l *Logger) rotate() {
+	// 先刷新缓冲区
+	if l.writer != nil {
+		l.writer.Flush()
+	}
 	// 关闭当前文件
 	if l.file != nil {
 		l.file.Close()
@@ -431,10 +442,38 @@ func (l *Logger) formatJSON(time, level, msg string, fields []interface{}) strin
 	return toJSON(data)
 }
 
+// periodicSync 定期同步日志到磁盘
+func (l *Logger) periodicSync() {
+	ticker := time.NewTicker(5 * time.Second) // 每5秒同步一次
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			l.mu.Lock()
+			if l.writer != nil {
+				l.writer.Flush()
+			}
+			if l.file != nil {
+				l.file.Sync()
+			}
+			l.mu.Unlock()
+		case <-l.stopSync:
+			return
+		}
+	}
+}
+
 // Close 关闭日志器
 func Close() error {
-	if defaultLogger != nil && defaultLogger.file != nil {
-		return defaultLogger.file.Close()
+	if defaultLogger != nil {
+		close(defaultLogger.stopSync) // 停止同步 goroutine
+		if defaultLogger.writer != nil {
+			defaultLogger.writer.Flush()
+		}
+		if defaultLogger.file != nil {
+			return defaultLogger.file.Close()
+		}
 	}
 	return nil
 }

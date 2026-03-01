@@ -48,9 +48,9 @@ type FeishuChannel struct {
 	running          bool
 	allowMap         map[string]bool
 
-	// Message deduplication
-	processedMsgs sync.Map // map[string]time.Time
-	dedupeMu      sync.Mutex
+	// Message deduplication - 使用 map + RWMutex 替代 sync.Map，避免并发问题
+	processedMsgs map[string]time.Time
+	dedupeMu      sync.RWMutex
 
 	// Context for graceful shutdown
 	ctx    context.Context
@@ -64,11 +64,12 @@ func NewFeishuChannel(cfg *config.FeishuConfig, speechCfg *config.SpeechConfig, 
 		allowMap[id] = true
 	}
 	fc := &FeishuChannel{
-		cfg:       cfg,
-		speechCfg: speechCfg,
-		workspace: workspace,
-		handler:   handler,
-		allowMap:  allowMap,
+		cfg:           cfg,
+		speechCfg:     speechCfg,
+		workspace:     workspace,
+		handler:       handler,
+		allowMap:      allowMap,
+		processedMsgs: make(map[string]time.Time),
 	}
 	// 检查是否实现了流式处理器接口
 	if sh, ok := handler.(StreamingMessageHandler); ok {
@@ -717,24 +718,21 @@ func (f *FeishuChannel) isProcessed(messageID string) bool {
 	// Clean up old entries (keep last 1 hour)
 	now := time.Now()
 	cutoff := now.Add(-1 * time.Hour)
-	var toDelete []string
-	f.processedMsgs.Range(func(key, value any) bool {
-		if t, ok := value.(time.Time); ok && t.Before(cutoff) {
-			toDelete = append(toDelete, key.(string))
+	for k, t := range f.processedMsgs {
+		if t.Before(cutoff) {
+			delete(f.processedMsgs, k)
 		}
-		return true
-	})
-	for _, k := range toDelete {
-		f.processedMsgs.Delete(k)
 	}
 
-	_, exists := f.processedMsgs.Load(messageID)
+	_, exists := f.processedMsgs[messageID]
 	return exists
 }
 
 // markProcessed 标记消息为已处理
 func (f *FeishuChannel) markProcessed(messageID string) {
-	f.processedMsgs.Store(messageID, time.Now())
+	f.dedupeMu.Lock()
+	defer f.dedupeMu.Unlock()
+	f.processedMsgs[messageID] = time.Now()
 }
 
 // parseTextContent 解析文本消息内容
