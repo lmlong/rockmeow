@@ -248,7 +248,7 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 	msgType := safeString(msg.MessageType)
 
 	// Add reaction to indicate "seen"
-	go f.addReaction(messageID, "THUMBSUP")
+	go f.addReaction(messageID, "OK")
 
 	// Parse message content
 	var content string
