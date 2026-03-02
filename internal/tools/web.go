@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,54 @@ type searchParams struct {
 	Count         int    `json:"count"`
 	SearchDepth   string `json:"searchDepth"`
 	IncludeAnswer bool   `json:"includeAnswer"`
+}
+
+// UnmarshalJSON 自定义解析，支持 LLM 生成的字符串类型参数
+func (p *searchParams) UnmarshalJSON(data []byte) error {
+	// 使用临时结构体，字段使用 interface{} 来接受多种类型
+	type tempParams struct {
+		Query         interface{} `json:"query"`
+		Count         interface{} `json:"count"`
+		SearchDepth   interface{} `json:"searchDepth"`
+		IncludeAnswer interface{} `json:"includeAnswer"`
+	}
+
+	var temp tempParams
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	// 解析 query (string)
+	switch v := temp.Query.(type) {
+	case string:
+		p.Query = v
+	}
+
+	// 解析 count (int 或 string)
+	switch v := temp.Count.(type) {
+	case float64:
+		p.Count = int(v)
+	case string:
+		if n, err := strconv.Atoi(v); err == nil {
+			p.Count = n
+		}
+	}
+
+	// 解析 searchDepth (string)
+	switch v := temp.SearchDepth.(type) {
+	case string:
+		p.SearchDepth = v
+	}
+
+	// 解析 includeAnswer (bool 或 string)
+	switch v := temp.IncludeAnswer.(type) {
+	case bool:
+		p.IncludeAnswer = v
+	case string:
+		p.IncludeAnswer = strings.ToLower(v) == "true"
+	}
+
+	return nil
 }
 
 // WebSearchTool 网页搜索工具 (支持 Tavily 和博查 AI 搜索)

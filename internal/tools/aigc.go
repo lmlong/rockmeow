@@ -120,7 +120,17 @@ func (t *AIGCTool) Name() string {
 
 // Description 返回工具描述
 func (t *AIGCTool) Description() string {
-	return "内容生成"
+	return `AI 图像/视频生成工具（阿里云通义万相）。
+
+**触发场景**：当用户要求"生成图片"、"画一张图"、"生成视频"、"把图片变成视频"时使用。
+
+**支持的 action**：
+- generate_image: 文生图，根据文字描述生成图片
+- generate_video: 文生视频，根据文字描述生成视频
+- generate_video_from_image: 图生视频，让静态图片动起来
+- generate_video_from_video: 视频生视频，保持角色一致性
+
+**注意**：调用前必须先加载 aigc skill 了解详细用法：skill --name aigc`
 }
 
 // Parameters 返回参数定义
