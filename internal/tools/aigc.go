@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -182,30 +183,42 @@ func (t *AIGCTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 		return "", fmt.Errorf("image generation API key not configured")
 	}
 
+	// 使用灵活的参数解析，支持 LLM 生成的字符串类型参数
 	var params struct {
-		Action    string `json:"action"`
-		Prompt    string `json:"prompt"`
-		ImagePath string `json:"image_path"`
-		VideoPath string `json:"video_path"`
-		Model     string `json:"model"`
-		Size      string `json:"size"`
-		Duration  int    `json:"duration"`
-		Style     string `json:"style"`
+		Action    string      `json:"action"`
+		Prompt    string      `json:"prompt"`
+		ImagePath string      `json:"image_path"`
+		VideoPath string      `json:"video_path"`
+		Model     string      `json:"model"`
+		Size      string      `json:"size"`
+		Duration  interface{} `json:"duration"` // 支持 int 或 string
+		Style     string      `json:"style"`
 	}
 
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", fmt.Errorf("parse arguments: %w", err)
 	}
 
+	// 解析 duration（支持 int 或 string）
+	duration := 5 // 默认值
+	switch v := params.Duration.(type) {
+	case float64:
+		duration = int(v)
+	case string:
+		if n, err := strconv.Atoi(v); err == nil {
+			duration = n
+		}
+	}
+
 	switch params.Action {
 	case "generate_image":
 		return t.generateImage(ctx, params.Prompt, params.Model, params.Size, params.Style)
 	case "generate_video":
-		return t.generateVideo(ctx, params.Prompt, params.Duration)
+		return t.generateVideo(ctx, params.Prompt, duration)
 	case "generate_video_from_image":
-		return t.generateVideoFromImage(ctx, params.ImagePath, params.Prompt, params.Duration)
+		return t.generateVideoFromImage(ctx, params.ImagePath, params.Prompt, duration)
 	case "generate_video_from_video":
-		return t.generateVideoFromVideo(ctx, params.VideoPath, params.Prompt, params.Duration)
+		return t.generateVideoFromVideo(ctx, params.VideoPath, params.Prompt, duration)
 	default:
 		return "", fmt.Errorf("unknown action: %s", params.Action)
 	}
