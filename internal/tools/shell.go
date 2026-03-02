@@ -28,7 +28,25 @@ func NewShellTool(workspaceMgr *WorkspaceManager, sandboxed bool) *ShellTool {
 func (t *ShellTool) Name() string { return "shell" }
 
 func (t *ShellTool) Description() string {
-	return ""
+	return `Execute shell commands in the workspace.
+
+**适用场景**：
+- 运行简单的系统命令（ls, cat, echo 等）
+- 执行构建任务（go build, make 等）
+- 安装 npm 包
+
+**不适用场景**（应先加载对应 skill）：
+- clawhub 检索/安装：先加载 "skill --name clawhub"
+- 视频生成：先加载 "skill --name aigc"
+- git 操作：先加载 "skill --name git-sync"
+
+- 文件操作：先加载 "skill --name file"
+
+**安全提示**：
+- 卦险命令会被阻止（rm -rf /, delete files）
+- 网络命令有超时限制
+- 默认工作目录为 workspace
+- 默认超时 30 秒`
 }
 
 func (t *ShellTool) Parameters() map[string]interface{} {

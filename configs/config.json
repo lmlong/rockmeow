@@ -23,7 +23,7 @@
     }
   },
   "agents": {
-    "workspace": "/home/etsme/.lingguard/workspace",
+    "workspace": "~/.lingguard/workspace",
     "provider": "qwencoder",
     "multimodalProvider": "qwencoder",
     "maxToolIterations": 50,
@@ -86,7 +86,7 @@
       }
     },
     "opencode": {
-      "enabled": true,
+      "enabled": false,
       "baseURL": "http://127.0.0.1:4096",
       "timeout": 1200
     },
@@ -109,18 +109,18 @@
       "enabled": false
     },
     "clawhub": {
-      "enabled": true,
+      "enabled": false,
       "apiToken": "clh_CKXKedjx54pGqwUjQkaOdM9IQb3YjvbjjwSCqjM7zUw"
     }
   },
   "storage": {
     "type": "file",
-    "path": "/home/etsme/.lingguard/memory"
+    "path": "~/.lingguard/memory"
   },
   "logging": {
     "level": "info",
     "format": "text",
-    "output": "/home/etsme/.lingguard/logs/lingguard.log",
+    "output": "~/.lingguard/logs/lingguard.log",
     "maxSize": 10,
     "maxAge": 7,
     "maxBackups": 5,
@@ -136,7 +136,7 @@
   },
   "cron": {
     "enabled": true,
-    "storePath": "/home/etsme/.lingguard/cron/jobs.json"
+    "storePath": "~/.lingguard/cron/jobs.json"
   },
   "webui": {
     "enabled": true,

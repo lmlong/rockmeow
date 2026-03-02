@@ -32,17 +32,18 @@ func (t *SkillTool) Description() string {
 	return `**必须使用**：加载指定技能的完整指令。
 
 触发条件（必须先调用此工具）：
-- 图像/视频生成：生成图片、画图、生成视频、图生视频
-- 网络搜索：搜索信息、查询资料
-- coding 任务：编写、编辑、分析、优化代码
-- git 操作：下载代码、上传代码、git clone、git push
-- 代码审查：review 代码
-- 文件操作：读写文件
-- 系统操作：执行系统命令
-- 定时任务：创建、管理定时任务
+- 图像/视频生成：生成图片、画图、生成视频、图生视频 → aigc
+- 技能搜索/安装：搜索技能、热门技能、clawhub → clawhub
+- 网络搜索：搜索信息、查询资料 → web
+- coding 任务：编写、编辑、分析、优化代码 → coding
+- git 操作：下载代码、上传代码、git clone、git push、上库 → git-sync
+- 代码审查：review 代码 → code-review
+- 文件操作：读写文件 → file
+- 系统操作：执行系统命令 → system
+- 定时任务：创建、管理定时任务 → cron
 
 调用方式：skill --name <技能名>
-常用技能：aigc, web, coding, git-workflow, code-review, file, system, cron
+常用技能：aigc, clawhub, web, coding, git-sync, code-review, file, system, cron
 
 返回完整的技能指令，包含具体操作步骤和示例。`
 }
@@ -54,7 +55,7 @@ func (t *SkillTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"name": map[string]interface{}{
 				"type":        "string",
-				"description": "Name of the skill to load (e.g., 'git-workflow', 'code-review')",
+				"description": "Name of the skill to load (e.g., 'git-sync', 'code-review')",
 			},
 		},
 		"required": []string{"name"},
