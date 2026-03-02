@@ -1,3 +1,10 @@
+// TODO(performance): This file contains hardcoded polling intervals (3s, 5s)
+// These should be configurable via config.json:
+// - tools.aigc.pollInterval (default: 3000ms)
+// - tools.aigc.maxPollTime (default: 300000ms)
+// Priority: P1 - Estimated effort: 1 day
+// Related: #configuration #performance
+
 // Package tools 工具实现 - 图像/视频生成工具
 package tools
 
@@ -495,7 +502,7 @@ func (t *AIGCTool) submitVideoToVideoTask(ctx context.Context, reqBody interface
 	req.Header.Set("X-DashScope-Async", "enable")
 	req.Header.Set("X-DashScope-OssResourceResolve", "enable") // 必需：用于解析 oss:// URL
 
-client := httpclient.ExtraLongTimeout()
+	client := httpclient.ExtraLongTimeout()
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("send request: %w", err)
@@ -537,7 +544,7 @@ func (t *AIGCTool) submitImageToVideoTask(ctx context.Context, reqBody interface
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t.apiKey))
 	req.Header.Set("X-DashScope-Async", "enable")
 
-client := httpclient.LongTimeout()
+	client := httpclient.LongTimeout()
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("send request: %w", err)
@@ -616,7 +623,7 @@ func (t *AIGCTool) callImageAPI(ctx context.Context, reqBody interface{}) (*imag
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t.apiKey))
 
-client := httpclient.ExtraLongTimeout()
+	client := httpclient.ExtraLongTimeout()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("send request: %w", err)
@@ -648,7 +655,7 @@ client := httpclient.ExtraLongTimeout()
 func (t *AIGCTool) waitForImageResult(ctx context.Context, taskID string) (*imageAPIResponse, error) {
 	// 阿里云任务查询 URL
 	url := fmt.Sprintf("https://dashscope.aliyuncs.com/api/v1/tasks/%s", taskID)
-client := httpclient.Default()
+	client := httpclient.Default()
 	maxAttempts := 60 // 最多等待 5 分钟
 
 	for i := 0; i < maxAttempts; i++ {
@@ -715,7 +722,7 @@ func (t *AIGCTool) submitVideoTask(ctx context.Context, reqBody interface{}) (st
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t.apiKey))
 	req.Header.Set("X-DashScope-Async", "enable")
 
-client := httpclient.LongTimeout()
+	client := httpclient.LongTimeout()
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("send request: %w", err)
@@ -743,7 +750,7 @@ client := httpclient.LongTimeout()
 func (t *AIGCTool) waitForVideoResult(ctx context.Context, taskID string) (*videoAPIResponse, error) {
 	// 使用统一的任务查询 URL
 	url := fmt.Sprintf("https://dashscope.aliyuncs.com/api/v1/tasks/%s", taskID)
-client := httpclient.Default()
+	client := httpclient.Default()
 	maxAttempts := 120 // 最多等待 10 分钟（视频生成较慢）
 
 	for i := 0; i < maxAttempts; i++ {
@@ -789,7 +796,7 @@ func (t *AIGCTool) downloadFile(ctx context.Context, url, prefix, ext string) (s
 		return "", err
 	}
 
-client := httpclient.ExtraLongTimeout()
+	client := httpclient.ExtraLongTimeout()
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -935,7 +942,7 @@ func (t *AIGCTool) uploadVideoForAPI(ctx context.Context, videoData []byte, ext 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", t.apiKey))
 	req.Header.Set("Content-Type", "application/json")
 
-client := httpclient.Default()
+	client := httpclient.Default()
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("get upload policy: %w", err)
@@ -1022,7 +1029,7 @@ client := httpclient.Default()
 	}
 	uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
 
-uploadClient := httpclient.ExtraLongTimeout()
+	uploadClient := httpclient.ExtraLongTimeout()
 	uploadResp, err := uploadClient.Do(uploadReq)
 	if err != nil {
 		return "", fmt.Errorf("upload to OSS: %w", err)

@@ -76,10 +76,12 @@ func NewSQLiteVecStore(cfg *VectorStoreConfig, emb embedding.Model, reranker Rer
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	// 设置连接池
-	db.SetMaxOpenConns(1) // SQLite 只支持单写
-	db.SetMaxIdleConns(1)
-
+	// 设置连接池（SQLite 优化配置）
+	// 虽然写操作是串行的，但读操作可以并发
+	db.SetMaxOpenConns(10)                  // 允许多个并发读操作
+	db.SetMaxIdleConns(5)                   // 保持 5 个空闲连接
+	db.SetConnMaxLifetime(time.Hour)        // 连接最大生命周期 1 小时
+	db.SetConnMaxIdleTime(10 * time.Minute) // 空闲连接超时 10 分钟
 	store := &SQLiteVecStore{
 		db:        db,
 		embedding: emb,

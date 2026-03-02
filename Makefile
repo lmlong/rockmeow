@@ -39,10 +39,19 @@ clean:
 	rm -f $(PROJECT)-linux $(PROJECT)-darwin $(PROJECT).exe
 	rm -rf dist
 
-# 测试
+# 测试（带 race 检测和覆盖率）
 test:
-	go test -v ./...
+	go test -v -race -cover ./...
 
+# 测试（生成覆盖率报告）
+test-coverage:
+	go test -v -race -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "覆盖率报告已生成: coverage.html"
+
+# 测试（基准测试）
+test-bench:
+	go test -bench=. -benchmem ./...
 # 安装到系统（包括 systemd 服务和配置）
 install: build
 	@echo "安装 LingGuard..."
@@ -202,8 +211,8 @@ help:
 	@echo "  make build              - 构建项目（输出到当前目录）"
 	@echo "  make run                - 构建并运行"
 	@echo "  make clean              - 清理构建产物"
-	@echo "  make test               - 运行测试"
-	@echo "  make deps               - 下载依赖"
+	@echo "  make test               - 运行测试（带 race 检测）"
+	@echo "  make test-coverage      - 运行测试并生成覆盖率报告"
 	@echo ""
 	@echo "打包命令:"
 	@echo "  make package            - 打包 Linux + macOS"

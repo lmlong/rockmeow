@@ -1,3 +1,19 @@
+// TODO(configuration): This file contains several magic numbers that should be configurable:
+// - Default maxToolIterations: 10 (line ~496, ~650) - should use config value
+// - Default sessionLockTimeout: 10 minutes (line ~273) - hardcoded default
+// - Default memoryWindow: 50 messages - could be configurable per use case
+// Recommended configuration structure in config.json:
+// {
+//   "agents": {
+//     "maxToolIterations": 20,     // Current default
+//     "sessionLockTimeout": 10,    // Minutes
+//     "memoryWindow": 50,          // Number of messages
+//     "reflectionPrompt": "..."    // Customizable prompt
+//   }
+// }
+// Priority: P1 - Estimated effort: 2-3 days
+// Related: #configuration #agent #magic-numbers
+
 // Package agent 核心代理逻辑
 package agent
 
@@ -474,8 +490,6 @@ func (a *Agent) ProcessMessageStreamWithMedia(ctx context.Context, sessionID, us
 
 	return runErr
 }
-
-
 
 // runLoop 代理执行循环
 func (a *Agent) runLoop(ctx context.Context, sessionID string, messages []llm.Message) (string, error) {

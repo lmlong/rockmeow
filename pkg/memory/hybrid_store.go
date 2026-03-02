@@ -284,6 +284,9 @@ func (s *HybridStore) AddMemory(category, content string) error {
 
 		// 3. 搜索向量数据库中的相似记忆
 		// 注意：这里不持有 bufferMu，避免死锁
+		// FIXME(context): AddMemory should accept context parameter for proper cancellation
+		// Priority: P2 - Estimated effort: 1 day
+		// Related: #context-propagation #api-improvement
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 

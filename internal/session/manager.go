@@ -21,6 +21,9 @@ type Session struct {
 	// 防止并发消息导致会话历史出现连续的 user 消息
 	processingMu sync.Mutex
 
+	// messagesMu 保护 Messages 和 UpdatedAt 的并发访问
+	messagesMu sync.RWMutex
+
 	// isProcessing 标记是否正在处理消息
 	isProcessing bool
 
@@ -29,6 +32,9 @@ type Session struct {
 
 	// forceUnlock 强制解锁信号通道
 	forceUnlock chan struct{}
+
+	// forceUnlockMu 保护 forceUnlock 通道的并发操作
+	forceUnlockMu sync.Mutex
 }
 
 // Manager 会话管理器
@@ -59,10 +65,10 @@ func (m *Manager) GetOrCreate(key string) *Session {
 	}
 
 	s := &Session{
-		Key:       key,
-		Messages:  make([]*memory.Message, 0),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		Key:         key,
+		Messages:    make([]*memory.Message, 0),
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 		forceUnlock: make(chan struct{}),
 	}
 	m.sessions[key] = s
@@ -72,6 +78,9 @@ func (m *Manager) GetOrCreate(key string) *Session {
 
 // AddMessage 添加消息
 func (s *Session) AddMessage(role, content string) {
+	s.messagesMu.Lock()
+	defer s.messagesMu.Unlock()
+
 	s.Messages = append(s.Messages, &memory.Message{
 		ID:        generateID(),
 		Role:      role,
@@ -83,6 +92,9 @@ func (s *Session) AddMessage(role, content string) {
 
 // AddMessageWithMedia 添加带媒体的消息
 func (s *Session) AddMessageWithMedia(role, content string, media []string) {
+	s.messagesMu.Lock()
+	defer s.messagesMu.Unlock()
+
 	s.Messages = append(s.Messages, &memory.Message{
 		ID:        generateID(),
 		Role:      role,
@@ -95,6 +107,9 @@ func (s *Session) AddMessageWithMedia(role, content string, media []string) {
 
 // GetHistory 获取历史消息（限制窗口大小）
 func (s *Session) GetHistory(window int) []*memory.Message {
+	s.messagesMu.RLock()
+	defer s.messagesMu.RUnlock()
+
 	if window <= 0 || len(s.Messages) <= window {
 		return s.Messages
 	}
@@ -103,6 +118,9 @@ func (s *Session) GetHistory(window int) []*memory.Message {
 
 // Clear 清空会话
 func (s *Session) Clear() {
+	s.messagesMu.Lock()
+	defer s.messagesMu.Unlock()
+
 	s.Messages = make([]*memory.Message, 0)
 	s.UpdatedAt = time.Now()
 }
@@ -134,10 +152,11 @@ func (s *Session) TryLockWithTimeout(timeout time.Duration) bool {
 	// 检查是否超时，如果超时则强制解锁
 	if !s.lockedAt.IsZero() && time.Since(s.lockedAt) > timeout {
 		logger.Warn("Session lock timeout, force unlocking", "key", s.Key, "lockedAt", s.lockedAt, "timeout", timeout)
-		// 发送强制解锁信号
+		// 加锁保护 forceUnlock 通道操作
+		s.forceUnlockMu.Lock()
 		close(s.forceUnlock)
-		// 重新创建通道供下次使用
 		s.forceUnlock = make(chan struct{})
+		s.forceUnlockMu.Unlock()
 		// 重置状态后重新尝试获取锁
 		s.isProcessing = false
 		s.lockedAt = time.Time{}
@@ -167,6 +186,8 @@ func (s *Session) UnlockAfterProcessing() {
 
 // ForceUnlockChannel 返回强制解锁通道，用于监听解锁信号
 func (s *Session) ForceUnlockChannel() <-chan struct{} {
+	s.forceUnlockMu.Lock()
+	defer s.forceUnlockMu.Unlock()
 	return s.forceUnlock
 }
 

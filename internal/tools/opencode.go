@@ -1,3 +1,16 @@
+// TODO(configuration): This file contains multiple hardcoded timeout and polling values:
+// - time.Sleep(2 * time.Second) - server restart delay
+// - time.Sleep(500 * time.Millisecond) - server health check interval
+// - time.Sleep(100 * time.Millisecond) - SSE polling interval
+// - consecutiveErrors backoff delays
+// These should be moved to config.json under tools.opencode namespace:
+// - tools.opencode.restartDelay
+// - tools.opencode.healthCheckInterval
+// - tools.opencode.pollInterval
+// - tools.opencode.maxRetries
+// Priority: P1 - Estimated effort: 1 day
+// Related: #configuration #performance #opencode
+//
 // Package tools OpenCode HTTP API integration
 package tools
 

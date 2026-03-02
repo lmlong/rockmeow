@@ -124,13 +124,16 @@ func TestP0_Session_NoRaceCondition(t *testing.T) {
 
 	// 并发尝试锁定
 	var wg sync.WaitGroup
+	var mu sync.Mutex
 	lockFailed := 0
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if !s.TryLockWithTimeout(100 * time.Millisecond) {
+				mu.Lock()
 				lockFailed++
+				mu.Unlock()
 			}
 		}()
 	}

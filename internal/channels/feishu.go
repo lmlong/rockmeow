@@ -1,3 +1,12 @@
+// TODO(architecture): This file is too large (1463 lines) and should be split into:
+// - feishu/client.go (WebSocket client management)
+// - feishu/message.go (Message handling)
+// - feishu/stream.go (Streaming response handling)
+// - feishu/media.go (Media upload/download)
+// - feishu/card.go (Message card operations)
+// Priority: P1 - Estimated effort: 2-3 days
+// Related: #code-quality #refactoring
+
 package channels
 
 import (
@@ -429,73 +438,73 @@ func (f *FeishuChannel) handleMessageStream(ctx context.Context, msg *Message, r
 		case stream.EventToolEnd:
 			// 检查工具结果是否包含生成的图片、视频或音频，如果有则上传并发送
 			if strings.Contains(event.ToolResult, "[GENERATED_IMAGE:") || strings.Contains(event.ToolResult, "[GENERATED_VIDEO:") || strings.Contains(event.ToolResult, "[GENERATED_AUDIO:") {
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Error("Feishu media upload goroutine panic recovered", "error", r)
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							logger.Error("Feishu media upload goroutine panic recovered", "error", r)
+						}
+					}()
+
+					// 处理图片
+					imagePattern := regexp.MustCompile(`\[GENERATED_IMAGE:([^\]]+)\]`)
+					imageMatches := imagePattern.FindAllStringSubmatch(event.ToolResult, -1)
+					for _, match := range imageMatches {
+						if len(match) > 1 {
+							imagePath := match[1]
+							logger.Info("Auto-uploading generated image", "path", imagePath)
+
+							imageKey, err := f.uploadImage(context.Background(), imagePath)
+							if err != nil {
+								logger.Warn("Failed to upload image", "path", imagePath, "error", err)
+								continue
+							}
+
+							if err := f.sendImageMessage(context.Background(), replyTo, imageKey); err != nil {
+								logger.Warn("Failed to send image message", "error", err)
+							}
+						}
+					}
+
+					// 处理视频
+					videoPattern := regexp.MustCompile(`\[GENERATED_VIDEO:([^\]]+)\]`)
+					videoMatches := videoPattern.FindAllStringSubmatch(event.ToolResult, -1)
+					for _, match := range videoMatches {
+						if len(match) > 1 {
+							videoPath := match[1]
+							logger.Info("Auto-uploading generated video", "path", videoPath)
+
+							fileKey, err := f.uploadFile(context.Background(), videoPath)
+							if err != nil {
+								logger.Warn("Failed to upload video", "path", videoPath, "error", err)
+								continue
+							}
+
+							if err := f.sendFileMessage(context.Background(), replyTo, fileKey); err != nil {
+								logger.Warn("Failed to send video message", "error", err)
+							}
+						}
+					}
+
+					// 处理音频
+					audioPattern := regexp.MustCompile(`\[GENERATED_AUDIO:([^\]]+)\]`)
+					audioMatches := audioPattern.FindAllStringSubmatch(event.ToolResult, -1)
+					for _, match := range audioMatches {
+						if len(match) > 1 {
+							audioPath := match[1]
+							logger.Info("Auto-uploading generated audio", "path", audioPath)
+
+							fileKey, err := f.uploadFile(context.Background(), audioPath)
+							if err != nil {
+								logger.Warn("Failed to upload audio", "path", audioPath, "error", err)
+								continue
+							}
+
+							if err := f.sendFileMessage(context.Background(), replyTo, fileKey); err != nil {
+								logger.Warn("Failed to send audio message", "error", err)
+							}
+						}
 					}
 				}()
-
-				// 处理图片
-				imagePattern := regexp.MustCompile(`\[GENERATED_IMAGE:([^\]]+)\]`)
-				imageMatches := imagePattern.FindAllStringSubmatch(event.ToolResult, -1)
-				for _, match := range imageMatches {
-					if len(match) > 1 {
-						imagePath := match[1]
-						logger.Info("Auto-uploading generated image", "path", imagePath)
-
-						imageKey, err := f.uploadImage(context.Background(), imagePath)
-						if err != nil {
-							logger.Warn("Failed to upload image", "path", imagePath, "error", err)
-							continue
-						}
-
-						if err := f.sendImageMessage(context.Background(), replyTo, imageKey); err != nil {
-							logger.Warn("Failed to send image message", "error", err)
-						}
-					}
-				}
-
-				// 处理视频
-				videoPattern := regexp.MustCompile(`\[GENERATED_VIDEO:([^\]]+)\]`)
-				videoMatches := videoPattern.FindAllStringSubmatch(event.ToolResult, -1)
-				for _, match := range videoMatches {
-					if len(match) > 1 {
-						videoPath := match[1]
-						logger.Info("Auto-uploading generated video", "path", videoPath)
-
-						fileKey, err := f.uploadFile(context.Background(), videoPath)
-						if err != nil {
-							logger.Warn("Failed to upload video", "path", videoPath, "error", err)
-							continue
-						}
-
-						if err := f.sendFileMessage(context.Background(), replyTo, fileKey); err != nil {
-							logger.Warn("Failed to send video message", "error", err)
-						}
-					}
-				}
-
-				// 处理音频
-				audioPattern := regexp.MustCompile(`\[GENERATED_AUDIO:([^\]]+)\]`)
-				audioMatches := audioPattern.FindAllStringSubmatch(event.ToolResult, -1)
-				for _, match := range audioMatches {
-					if len(match) > 1 {
-						audioPath := match[1]
-						logger.Info("Auto-uploading generated audio", "path", audioPath)
-
-						fileKey, err := f.uploadFile(context.Background(), audioPath)
-						if err != nil {
-							logger.Warn("Failed to upload audio", "path", audioPath, "error", err)
-							continue
-						}
-
-						if err := f.sendFileMessage(context.Background(), replyTo, fileKey); err != nil {
-							logger.Warn("Failed to send audio message", "error", err)
-						}
-					}
-				}
-			}()
 			}
 
 		case stream.EventDone:
