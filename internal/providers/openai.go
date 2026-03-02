@@ -135,7 +135,6 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *llm.Request) (<-chan l
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-
 	logger.Debug("Stream request body", "body", string(reqBody))
 
 	start := time.Now()
@@ -170,9 +169,19 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *llm.Request) (<-chan l
 		defer close(eventChan)
 		defer resp.RawBody().Close()
 
-		scanner := bufio.NewScanner(resp.RawBody())
-		for scanner.Scan() {
-			line := scanner.Text()
+		// 使用 bufio.Reader 代替 Scanner，避免 64KB 行长度限制
+		reader := bufio.NewReader(resp.RawBody())
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				logger.Warn("Stream read error", "error", err)
+				return
+			}
+
+			line = strings.TrimSpace(line)
 			if !strings.HasPrefix(line, "data: ") {
 				continue
 			}

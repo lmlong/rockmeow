@@ -502,6 +502,10 @@ func expandPath(path string) string {
 }
 
 func toJSON(v interface{}) string {
+	// 处理 json.RawMessage 类型，避免被序列化为字节数组
+	if raw, ok := v.(json.RawMessage); ok {
+		return string(raw)
+	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Sprintf("%v", v)

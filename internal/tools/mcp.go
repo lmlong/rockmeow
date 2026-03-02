@@ -18,6 +18,8 @@ import (
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/pkg/logger"
 )
+
+// MCPToolWrapper wraps an MCP server tool as a native LingGuard Too
 // MCPToolWrapper wraps an MCP server tool as a native LingGuard Tool
 type MCPToolWrapper struct {
 	serverName   string
@@ -58,6 +60,15 @@ func (t *MCPToolWrapper) Parameters() map[string]interface{} {
 }
 
 func (t *MCPToolWrapper) Execute(ctx context.Context, params json.RawMessage) (string, error) {
+	// 验证 JSON 完整性
+	if len(params) > 0 && !json.Valid(params) {
+		preview := string(params)
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
+		}
+		return "", fmt.Errorf("invalid parameters: incomplete JSON (len=%d, preview=%s)", len(params), preview)
+	}
+
 	var args map[string]interface{}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &args); err != nil {

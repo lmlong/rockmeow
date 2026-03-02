@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -202,11 +203,35 @@ func (p *AnthropicProvider) Stream(ctx context.Context, req *llm.Request) (<-cha
 		defer close(eventChan)
 		defer resp.RawBody().Close()
 
-		scanner := bufio.NewScanner(resp.RawBody())
+		// 使用 bufio.Reader 代替 Scanner，避免 64KB 行长度限制
+		reader := bufio.NewReader(resp.RawBody())
 		var currentData string
 
-		for scanner.Scan() {
-			line := scanner.Text()
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					// 处理最后可能剩余的数据
+					if currentData != "" {
+						var event anthropicStreamEvent
+						if err := json.Unmarshal([]byte(currentData), &event); err == nil {
+							streamEvent := p.convertStreamEvent(&event)
+							if streamEvent != nil {
+								select {
+								case eventChan <- *streamEvent:
+								case <-ctx.Done():
+									return
+								}
+							}
+						}
+					}
+					return
+				}
+				logger.Warn("Stream read error", "error", err)
+				return
+			}
+
+			line = strings.TrimSpace(line)
 
 			// 处理 data: 行
 			if strings.HasPrefix(line, "data: ") {
