@@ -46,7 +46,7 @@ cd ~/.lingguard/workspace/repo && git checkout -b ai-test && git push -u origin 
 ### 下载代码（已存在的仓库）
 
 ```bash
-cd ~/.lingguard/workspace/repo && python3 ./scripts/git_download.py
+cd ~/.lingguard/workspace/repo && python3 ~/.lingguard/skills/git-sync/scripts/git_download.py
 ```
 
 工作流程：
@@ -58,7 +58,7 @@ cd ~/.lingguard/workspace/repo && python3 ./scripts/git_download.py
 ### 上传代码
 
 ```bash
-cd ~/.lingguard/workspace/repo && python3 ./scripts/git_upload.py
+cd ~/.lingguard/workspace/repo && python3 ~/.lingguard/skills/git-sync/scripts/git_upload.py
 ```
 
 工作流程：
@@ -79,8 +79,8 @@ cd repo && git checkout -b ai-test && git push -u origin ai-test
 
 # 3. 进行代码修改...
 
-# 4. 上传代码
-python3 ./scripts/git_upload.py
+# 4. 上传代码（使用 skill 目录中的脚本）
+python3 ~/.lingguard/skills/git-sync/scripts/git_upload.py
 ```
 
 ## 脚本文件
