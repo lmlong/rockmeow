@@ -1,5 +1,5 @@
 ---
-name: git-workflow
+name: git-sync
 description: Git 工作流详细技术参考
 ---
 

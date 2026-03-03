@@ -1,5 +1,5 @@
 ---
-name: git-workflow
+name: git-sync
 description: Git 工作流使用示例
 ---
 
@@ -91,7 +91,7 @@ REPOS=(
     "/path/to/repo3"
 )
 
-SCRIPTS_DIR="/path/to/git-workflow/scripts"
+SCRIPTS_DIR="/path/to/git-sync/scripts"
 
 for repo in "${REPOS[@]}"; do
     echo "处理仓库: $repo"

@@ -322,7 +322,7 @@ liuyingshiwolaopofirefly260710
 |------|------|
 | `clawhub` | 🦞 ClawHub 技能仓库，搜索/安装/更新技能 |
 | `weather` | 🌤️ 天气查询 (心知天气) |
-| `git-workflow` | 🌿 Git 工作流自动化 |
+| `git-sync` | 🌿 Git 工作流自动化 |
 | `code-review` | 代码审查指南 |
 | `coding` | 💻 编码任务（使用 opencode） |
 | `file` | 文件操作指南 |

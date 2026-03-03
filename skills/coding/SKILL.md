@@ -14,24 +14,24 @@ metadata: {"nanobot":{"emoji":"💻"}}
 3. ❌ **NEVER use `shell` tool** to verify opencode's work
 4. ❌ **NEVER use `workspace` tool** to check files created by opencode
 5. ✅ **SPLIT large tasks** into smaller steps (each opencode call < 20 minutes)
-6. ⚠️ **下载和上传代码必须使用 git-workflow skill**（见下方）
+6. ⚠️ **下载和上传代码必须使用 git-sync skill**（见下方）
 
 **opencode returns complete results. Trust it. No verification needed.**
 
 ## 🚨 重要：下载和上传代码
 
-**下载代码（git clone）和上传代码（git push）必须使用 `git-workflow` skill！**
+**下载代码（git clone）和上传代码（git push）必须使用 `git-sync` skill！**
 
 ### 下载代码
 ```
-skill --name git-workflow
+skill --name git-sync
 # 然后执行:
 python3 ./scripts/git_download.py
 ```
 
 ### 上传代码
 ```
-skill --name git-workflow
+skill --name git-sync
 # 然后执行:
 python3 ./scripts/git_upload.py
 ```
@@ -54,11 +54,11 @@ python3 ./scripts/git_upload.py
 
 **Split Pattern:**
 ```
-Step 1: skill --name git-workflow (下载代码)
+Step 1: skill --name git-sync (下载代码)
 Step 2: opencode - "Analyze project structure, list main files and their purposes"
 Step 3: opencode - "Review file X for optimization opportunities"
 Step 4: opencode - "Apply optimizations to file X"
-Step 5: skill --name git-workflow (上传代码)
+Step 5: skill --name git-sync (上传代码)
 ...continue as needed...
 ```
 
@@ -81,18 +81,18 @@ Step 5: skill --name git-workflow (上传代码)
 
 ```
 User: 下载代码，优化，并上库
-You: [calls shell git clone]  ← WRONG! 应该使用 git-workflow skill
+You: [calls shell git clone]  ← WRONG! 应该使用 git-sync skill
      [calls opencode]
-     [calls shell git push]   ← WRONG! 应该使用 git-workflow skill
+     [calls shell git push]   ← WRONG! 应该使用 git-sync skill
 ```
 
 ## CORRECT Behavior
 
 ```
 User: 下载代码，优化，并上库
-You: [calls skill --name git-workflow]  ✅ 下载代码
+You: [calls skill --name git-sync]  ✅ 下载代码
      [calls opencode]                    ✅ 分析和优化
-     [calls skill --name git-workflow]  ✅ 上传代码
+     [calls skill --name git-sync]  ✅ 上传代码
 ```
 
 **opencode result is final. Report it directly to user. No follow-up tools.**

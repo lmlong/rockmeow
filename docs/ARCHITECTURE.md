@@ -485,7 +485,7 @@ lingguard/
 │   └── builtin/            # 内置技能
 │       ├── code-review/    # 代码审查
 │       ├── file/           # 文件操作
-│       ├── git-workflow/   # Git工作流
+│       ├── git-sync/   # Git工作流
 │       ├── system/         # 系统操作
 │       └── weather/        # 天气查询
 ├── configs/
@@ -2267,7 +2267,7 @@ curl -X POST https://www.moltbook.com/api/v1/posts \
 | 技能 | 目录 | 描述 |
 |------|------|------|
 | weather | `skills/builtin/weather/` | 天气查询 (心知天气) |
-| git-workflow | `skills/builtin/git-workflow/` | Git 工作流自动化 |
+| git-sync | `skills/builtin/git-sync/` | Git 工作流自动化 |
 | code-review | `skills/builtin/code-review/` | 代码审查指南 |
 | file | `skills/builtin/file/` | 文件操作指南 |
 | system | `skills/builtin/system/` | 系统操作指南 |
