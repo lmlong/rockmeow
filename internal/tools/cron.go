@@ -46,7 +46,16 @@ func (t *CronTool) Description() string {
 - update: 更新现有任务（修改时间、名称、内容等）
 - remove: 删除定时任务
 - enable/disable: 启用/禁用任务
-重要：当任务需要执行操作（如搜索、收集、整理、分析等）时，必须设置execute=true`
+
+⚠️ 关键规则：判断 execute 参数
+- message 包含"搜索/查询/收集/整理/分析/生成/检查/抓取/访问"等动作词 → 必须设置 execute=true
+- message 只是提醒文字（如"该开会了"、"记得吃药"）→ 不设置 execute
+
+示例判断：
+- "搜索AI新闻推送给我" → 需要先搜索 → execute=true
+- "查询天气推送给我" → 需要先查询 → execute=true
+- "提醒我开会" → 只是通知 → 不需要 execute
+- "每小时叫我休息" → 只是通知 → 不需要 execute`
 }
 
 func (t *CronTool) Parameters() map[string]interface{} {
@@ -111,14 +120,31 @@ func (t *CronTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	case "list":
 		return t.listJobs()
 	case "add":
-		// 对于 add 操作，execute 默认为 false（如果未指定）
-		execute := false
+		// 智能判断 execute 模式
+		// 1. 如果 LLM 显式设置了 execute 参数，使用该值
+		// 2. 否则，自动检测 message 中是否包含动作关键词
+		var execute bool
 		if p.Execute != nil {
 			execute = *p.Execute
+			logger.Info("CronTool addJob (explicit)", "name", p.Name, "execute", execute)
+		} else {
+			// 自动检测：如果 message 包含动作关键词，自动设置 execute=true
+			execute = detectExecuteMode(p.Message)
+			logger.Info("CronTool addJob (auto-detect)", "name", p.Name, "execute", execute)
 		}
 		return t.addJob(p.Name, p.Schedule, p.Message, p.Timezone, execute)
 	case "update":
-		return t.updateJob(p.JobID, p.Name, p.Schedule, p.Message, p.Timezone, p.Enabled, p.Execute)
+		// 智能判断 execute 模式（如果更新了 message 但没有显式设置 execute）
+		executeParam := p.Execute
+		if p.Message != "" && p.Execute == nil {
+			// message 更新了，自动检测是否需要执行模式
+			if detectExecuteMode(p.Message) {
+				execute := true
+				executeParam = &execute
+				logger.Info("CronTool updateJob (auto-detect execute)", "job_id", p.JobID, "execute", true)
+			}
+		}
+		return t.updateJob(p.JobID, p.Name, p.Schedule, p.Message, p.Timezone, p.Enabled, executeParam)
 	case "remove":
 		return t.removeJob(p.JobID)
 	case "enable":
@@ -394,4 +420,39 @@ func formatTime(ms int64) string {
 		return "not scheduled"
 	}
 	return time.UnixMilli(ms).Format("2006-01-02 15:04:05")
+}
+
+// executeActionKeywords 需要执行模式的动作关键词
+var executeActionKeywords = []string{
+	// 搜索/查询类
+	"搜索", "查询", "查找", "检索", "寻找", "搜一下",
+	// 收集/整理类
+	"收集", "整理", "汇总", "统计", "归纳", "总结", "汇总",
+	// 分析类
+	"分析", "研究", "对比", "比较", "评估",
+	// 生成类
+	"生成", "创建", "编写", "撰写", "制作",
+	// 检查类
+	"检查", "监控", "检测", "访问", "抓取", "爬取", "获取",
+	// 推送内容类（需要先获取内容）
+	"推送天气", "推送新闻", "推送资讯", "推送动态",
+}
+
+// detectExecuteMode 自动检测是否需要执行模式
+// 当 message 包含动作关键词时，返回 true
+func detectExecuteMode(message string) bool {
+	if message == "" {
+		return false
+	}
+
+	lowerMsg := strings.ToLower(message)
+
+	for _, keyword := range executeActionKeywords {
+		if strings.Contains(lowerMsg, keyword) {
+			logger.Info("CronTool auto-detect execute mode", "keyword", keyword, "message", utils.TruncateString(message, 50))
+			return true
+		}
+	}
+
+	return false
 }
