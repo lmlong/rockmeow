@@ -1,0 +1,111 @@
+1.解压源代码压缩包  lingguard-main-20260303.zip
+
+2.打开终端，cd 到 lingguard 目录下
+
+3.安装go构建工具，需要 1.23 版本以上
+下载地址为 https://go.dev/dl/go1.23.6.darwin-arm64.tar.gz
+解压后 把 go 目录拷贝到 /usr/local/ 目录下，
+$ ls -l /usr/local/
+总计 40
+drwxr-xr-x  2 root root 4096  2月 16 20:16 bin
+drwxr-xr-x  2 root root 4096  8月 27  2024 etc
+drwxr-xr-x  2 root root 4096  8月 27  2024 games
+drwxr-xr-x 10 root root 4096  9月 28  2024 go
+drwxr-xr-x  2 root root 4096  8月 27  2024 include
+drwxr-xr-x  4 root root 4096  5月 19  2025 lib
+lrwxrwxrwx  1 root root    9  8月 27  2024 man -> share/man
+drwxr-xr-x  2 root root 4096  8月 27  2024 sbin
+drwxr-xr-x  7 root root 4096  8月 27  2024 share
+drwxr-xr-x  2 root root 4096  8月 27  2024 src
+
+
+执行go version，查下go版本
+$ go version
+go version go1.23.6 linux/amd64
+
+4.执行 make build 确保可以构建成功
+$ make build
+go build -ldflags "-s -w -X main.Version=dev -X main.BuildTime=20260303104941" -o lingguard ./cmd/lingguard
+
+5.增加飞书开放平台
+https://open.feishu.cn/app?lang=zh-CN
+
+创建企业自建应用
+点击 左边栏的 凭证和基础信息，复制 App ID  和 App Secret，修改源代码目录下configs/config.json 文件
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "appId": "添上飞书开放平台复制来的App ID",
+      "appSecret": "添上飞书开放平台复制来的App Secret"
+    }
+  }
+
+6.执行 make install 部署到系统，会以 gateway 模式启动
+
+7.继续飞书开放平台设置
+点击 左边栏的 添加应用能力
+添加机器人,使能
+
+点击 左边栏的 权限管理-批量导入/导出权限，导入以下内容
+{
+  "scopes": {
+    "tenant": [
+      "contact:contact.base:readonly",
+      "contact:user.base:readonly",
+      "im:chat",
+      "im:message",
+      "im:message.group_at_msg:readonly",
+      "im:message.group_msg",
+      "im:message.p2p_msg:readonly",
+      "im:message:readonly",
+      "im:message:send_as_bot",
+      "im:resource"
+    ],
+    "user": [
+      "aily:message:read",
+      "aily:message:write",
+      "aily:session:write",
+      "aily:skill:read",
+      "aily:skill:write",
+      "app_engine:application.event_subscriber:read",
+      "app_engine:apps:read",
+      "im:chat",
+      "im:chat.announcement:read",
+      "im:chat.announcement:write_only",
+      "im:chat.chat_pins:read",
+      "im:chat.chat_pins:write_only",
+      "im:chat.collab_plugins:read",
+      "im:chat.collab_plugins:write_only",
+      "im:chat.managers:write_only",
+      "im:chat.members:read",
+      "im:chat.members:write_only",
+      "im:chat.moderation:read",
+      "im:chat.tabs:read",
+      "im:chat.tabs:write_only",
+      "im:chat.top_notice:write_only",
+      "im:chat:moderation:write_only",
+      "im:chat:read",
+      "im:chat:readonly",
+      "im:chat:update",
+      "im:message",
+      "im:message.pins:read",
+      "im:message.pins:write_only",
+      "im:message.reactions:read",
+      "im:message.reactions:write_only",
+      "im:message.urgent.status:write",
+      "im:message:readonly",
+      "im:message:recall",
+      "im:message:update"
+    ]
+  }
+}
+点击 下一步，确认新增权限 - 申请开通
+
+
+点击 左边栏的 事件和回调
+点击订阅方式，选择 使用长连接接收事件
+点击添加事件，添加 im.message.receive_v1
+
+点击 版本管理与发布，创建版本，保存
+
+审核通过后飞书上会有消息通知，打开和机器人的聊天框，可以直接聊天了
