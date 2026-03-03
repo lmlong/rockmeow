@@ -80,7 +80,7 @@ func (t *CronTool) Parameters() map[string]interface{} {
 			},
 			"execute": map[string]interface{}{
 				"type":        "boolean",
-				"description": "执行模式：true=先执行Agent处理任务再通知结果（用于搜索、收集、整理等需要执行操作的任务），false=仅发送通知（用于简单提醒）。默认false。",
+				"description": "【重要】执行模式：true=先执行Agent处理任务再通知结果（用于搜索、收集、整理、分析、推送等需要执行操作的任务），false或未设置=仅发送通知（用于简单提醒）。当message包含任何需要Agent执行的操作时必须设为true！",
 			},
 			"enabled": map[string]interface{}{
 				"type":        "boolean",
@@ -99,7 +99,7 @@ func (t *CronTool) Execute(ctx context.Context, params json.RawMessage) (string,
 		Message  string `json:"message"`
 		JobID    string `json:"job_id"`
 		Timezone string `json:"timezone"`
-		Execute  bool   `json:"execute"`
+		Execute  *bool  `json:"execute"` // 使用指针区分未设置和 false
 		Enabled  *bool  `json:"enabled"` // 使用指针区分未设置和 false
 	}
 
@@ -111,9 +111,14 @@ func (t *CronTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	case "list":
 		return t.listJobs()
 	case "add":
-		return t.addJob(p.Name, p.Schedule, p.Message, p.Timezone, p.Execute)
+		// 对于 add 操作，execute 默认为 false（如果未指定）
+		execute := false
+		if p.Execute != nil {
+			execute = *p.Execute
+		}
+		return t.addJob(p.Name, p.Schedule, p.Message, p.Timezone, execute)
 	case "update":
-		return t.updateJob(p.JobID, p.Name, p.Schedule, p.Message, p.Timezone, p.Enabled)
+		return t.updateJob(p.JobID, p.Name, p.Schedule, p.Message, p.Timezone, p.Enabled, p.Execute)
 	case "remove":
 		return t.removeJob(p.JobID)
 	case "enable":
@@ -145,6 +150,12 @@ func (t *CronTool) listJobs() (string, error) {
 		if job.State.LastRunAtMs > 0 {
 			sb.WriteString(fmt.Sprintf("  Last Run: %s (%s)\n", formatTime(job.State.LastRunAtMs), job.State.LastStatus))
 		}
+		// 显示执行模式
+		if job.Payload.Execute {
+			sb.WriteString("  Mode: 🤖 Execute + Notify\n")
+		} else {
+			sb.WriteString("  Mode: 📢 Notify only\n")
+		}
 		sb.WriteString(fmt.Sprintf("  Message: %s\n", utils.TruncateString(job.Payload.Message, 100)))
 	}
 
@@ -162,6 +173,9 @@ func (t *CronTool) addJob(name, scheduleStr, message, timezone string, execute b
 	}
 
 	var opts []cron.JobOption
+
+	// 设置执行模式 - 记录日志便于调试
+	logger.Info("CronTool addJob", "name", name, "execute", execute)
 
 	// 设置执行模式
 	if execute {
@@ -227,7 +241,7 @@ func (t *CronTool) enableJob(id string, enabled bool) (string, error) {
 	return result, nil
 }
 
-func (t *CronTool) updateJob(id, name, scheduleStr, message, timezone string, enabled *bool) (string, error) {
+func (t *CronTool) updateJob(id, name, scheduleStr, message, timezone string, enabled *bool, execute *bool) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("job_id is required")
 	}
@@ -258,6 +272,12 @@ func (t *CronTool) updateJob(id, name, scheduleStr, message, timezone string, en
 		opts.Enabled = enabled
 	}
 
+	// 更新执行模式
+	if execute != nil {
+		opts.Execute = execute
+		logger.Info("CronTool updateJob", "id", id, "execute", *execute)
+	}
+
 	job, err := t.service.UpdateJob(id, opts)
 	if err != nil {
 		return "", err
@@ -280,9 +300,23 @@ func (t *CronTool) updateJob(id, name, scheduleStr, message, timezone string, en
 		}
 		changes = append(changes, status)
 	}
+	if execute != nil {
+		mode := "notify only"
+		if *execute {
+			mode = "execute + notify"
+		}
+		changes = append(changes, fmt.Sprintf("mode=%s", mode))
+	}
 
 	result := fmt.Sprintf("Task '%s' updated!\n- ID: %s\n- Changes: %s\n- Next Run: %s",
 		job.Name, job.ID, strings.Join(changes, ", "), formatTime(job.State.NextRunAtMs))
+
+	// 显示当前执行模式
+	if job.Payload.Execute {
+		result += "\n- Mode: 🤖 Execute + Notify"
+	} else {
+		result += "\n- Mode: 📢 Notify only"
+	}
 
 	return result, nil
 }

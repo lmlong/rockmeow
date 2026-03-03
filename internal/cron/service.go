@@ -541,6 +541,7 @@ type UpdateJobOptions struct {
 	Schedule *CronSchedule // 新调度（可选）
 	Message  *string       // 新消息（可选）
 	Enabled  *bool         // 启用/禁用（可选）
+	Execute  *bool         // 执行模式（可选）
 }
 
 // UpdateJob 更新任务
@@ -579,6 +580,12 @@ func (s *Service) UpdateJob(id string, opts UpdateJobOptions) (*CronJob, error) 
 					// 如果只更新启用状态，重新计算下次执行时间
 					job.State.NextRunAtMs = computeNextRun(&job.Schedule, nowMs())
 				}
+			}
+
+			// 更新执行模式
+			if opts.Execute != nil {
+				job.Payload.Execute = *opts.Execute
+				logger.Info("Cron updated execute mode", "id", id, "execute", *opts.Execute)
 			}
 
 			job.UpdatedAtMs = nowMs()

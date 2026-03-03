@@ -48,8 +48,14 @@ var cronListCmd = &cobra.Command{
 			nextRun := formatNextRun(job.State.NextRunAtMs)
 			lastRun := formatLastRun(job.State.LastRunAtMs, job.State.LastStatus)
 
+			// 显示执行模式
+			mode := "📢 Notify"
+			if job.Payload.Execute {
+				mode = "🤖 Execute"
+			}
+
 			fmt.Printf("ID: %s | Status: %s | Name: %s\n", job.ID, status, job.Name)
-			fmt.Printf("    Schedule: %s | Next: %s\n", formatSchedule(job.Schedule), nextRun)
+			fmt.Printf("    Schedule: %s | Next: %s | Mode: %s\n", formatSchedule(job.Schedule), nextRun, mode)
 			fmt.Printf("    Message: %s\n", utils.TruncateString(job.Payload.Message, 50))
 			if lastRun != "" {
 				fmt.Printf("    Last Run: %s\n", lastRun)
@@ -104,6 +110,10 @@ Timezone:
 			opts = append(opts, cron.WithDeleteAfterRun())
 		}
 
+		if execute, _ := cmd.Flags().GetBool("execute"); execute {
+			opts = append(opts, cron.WithExecute(true))
+		}
+
 		job, err := service.AddJob(name, *schedule, message, opts...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error adding job: %v\n", err)
@@ -118,6 +128,11 @@ Timezone:
 			fmt.Printf("  Timezone: %s\n", job.Schedule.TZ)
 		}
 		fmt.Printf("  Next Run: %s\n", formatNextRun(job.State.NextRunAtMs))
+		if job.Payload.Execute {
+			fmt.Printf("  Mode: 🤖 Execute + Notify\n")
+		} else {
+			fmt.Printf("  Mode: 📢 Notify only\n")
+		}
 	},
 }
 
@@ -222,6 +237,64 @@ var cronRunCmd = &cobra.Command{
 	},
 }
 
+var cronUpdateCmd = &cobra.Command{
+	Use:   "update <job-id>",
+	Short: "Update a scheduled task",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		_, service, err := initCronService()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		defer service.Stop()
+
+		jobID := args[0]
+		opts := cron.UpdateJobOptions{}
+
+		if name, _ := cmd.Flags().GetString("name"); name != "" {
+			opts.Name = &name
+		}
+		if scheduleStr, _ := cmd.Flags().GetString("schedule"); scheduleStr != "" {
+			tz, _ := cmd.Flags().GetString("tz")
+			schedule, err := parseScheduleWithTZ(scheduleStr, tz)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error parsing schedule: %v\n", err)
+				os.Exit(1)
+			}
+			opts.Schedule = schedule
+		}
+		if message, _ := cmd.Flags().GetString("message"); message != "" {
+			opts.Message = &message
+		}
+		if cmd.Flags().Changed("execute") {
+			execute, _ := cmd.Flags().GetBool("execute")
+			opts.Execute = &execute
+		}
+		if cmd.Flags().Changed("enabled") {
+			enabled, _ := cmd.Flags().GetBool("enabled")
+			opts.Enabled = &enabled
+		}
+
+		job, err := service.UpdateJob(jobID, opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error updating task: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Task updated successfully!\n")
+		fmt.Printf("  ID: %s\n", job.ID)
+		fmt.Printf("  Name: %s\n", job.Name)
+		fmt.Printf("  Schedule: %s\n", formatSchedule(job.Schedule))
+		fmt.Printf("  Next Run: %s\n", formatNextRun(job.State.NextRunAtMs))
+		if job.Payload.Execute {
+			fmt.Printf("  Mode: 🤖 Execute + Notify\n")
+		} else {
+			fmt.Printf("  Mode: 📢 Notify only\n")
+		}
+	},
+}
+
 var cronStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show cron service status",
@@ -247,6 +320,7 @@ func init() {
 	cronCmd.AddCommand(cronEnableCmd)
 	cronCmd.AddCommand(cronDisableCmd)
 	cronCmd.AddCommand(cronRunCmd)
+	cronCmd.AddCommand(cronUpdateCmd)
 	cronCmd.AddCommand(cronStatusCmd)
 
 	cronListCmd.Flags().BoolP("all", "a", false, "Include disabled tasks")
@@ -254,8 +328,18 @@ func init() {
 	cronAddCmd.Flags().StringP("channel", "c", "", "Target channel (e.g., feishu)")
 	cronAddCmd.Flags().StringP("to", "t", "", "Target user/group ID")
 	cronAddCmd.Flags().BoolP("delete-after", "", false, "Delete after execution")
+	cronAddCmd.Flags().BoolP("execute", "e", false, "Execute mode: run Agent to process task before notifying")
 	cronAddCmd.Flags().StringP("tz", "z", "", "Timezone for cron expression")
 	cronRunCmd.Flags().BoolP("force", "f", false, "Force run even if disabled")
+
+	// update 命令的 flags
+	cronUpdateCmd.Flags().StringP("name", "n", "", "New task name")
+	cronUpdateCmd.Flags().StringP("schedule", "s", "", "New schedule (e.g., cron:0 9 * * *)")
+	cronUpdateCmd.Flags().StringP("message", "m", "", "New task message")
+	cronUpdateCmd.Flags().BoolP("execute", "e", false, "Enable execute mode (run Agent before notifying)")
+	cronUpdateCmd.Flags().Bool("no-execute", false, "Disable execute mode (notify only)")
+	cronUpdateCmd.Flags().Bool("enabled", true, "Enable or disable the task")
+	cronUpdateCmd.Flags().StringP("tz", "z", "", "Timezone for cron expression")
 }
 
 func initCronService() (*config.Config, *cron.Service, error) {
