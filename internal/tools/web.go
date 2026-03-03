@@ -98,7 +98,27 @@ func NewWebSearchTool(tavilyAPIKey, bochaAPIKey string, maxResults int) *WebSear
 func (t *WebSearchTool) Name() string { return "web_search" }
 
 func (t *WebSearchTool) Description() string {
-	return "搜索"
+	return `网络搜索工具。当用户要求"搜索"、"查询"、"搜索一下"时使用。
+
+**支持的搜索服务**：
+- Tavily（优先）- 高质量 AI 搜索
+- 博查 AI（备用）- 中文搜索优化
+
+**参数说明**：
+- query: 搜索关键词（必填）
+- count: 返回结果数量，1-10（默认 5）
+- searchDepth: "basic" 快速搜索 / "advanced" 深度搜索
+- includeAnswer: 是否包含 AI 生成的答案摘要（默认 true）
+
+**示例**：
+- {"query": "最新的 AI 新闻"}
+- {"query": "Go 语言教程", "count": 5, "searchDepth": "advanced"}
+
+**触发场景**：
+- "搜索 xxx"
+- "查一下 xxx"
+- "帮我找 xxx"
+- "xxx 是什么"`
 }
 
 func (t *WebSearchTool) Parameters() map[string]interface{} {
@@ -369,7 +389,35 @@ func NewWebFetchTool(maxChars int) *WebFetchTool {
 func (t *WebFetchTool) Name() string { return "web_fetch" }
 
 func (t *WebFetchTool) Description() string {
-	return "抓取"
+	return `网页内容抓取工具。当用户要求"打开网页"、"读取网页"、"获取网页内容"时使用。
+
+**参数说明**：
+- url: 要抓取的网址（必填）
+- extractMode: 提取模式
+  - "markdown": 转换为 Markdown 格式（默认，保留结构）
+  - "text": 纯文本格式
+- maxChars: 最大返回字符数（默认 50000）
+
+**示例**：
+- {"url": "https://example.com/article"}
+- {"url": "https://docs.example.com", "extractMode": "markdown"}
+
+**返回内容**：
+- url: 原始 URL
+- finalUrl: 最终 URL（处理重定向后）
+- text: 提取的内容
+- truncated: 是否被截断
+
+**触发场景**：
+- "打开这个网页"
+- "读取这篇文章"
+- "获取这个链接的内容"
+- "看看这个页面说什么"
+
+**安全限制**：
+- 只允许 http/https 协议
+- 禁止访问私有 IP 地址（SSRF 防护）
+- 禁止访问 localhost 等内部地址`
 }
 
 func (t *WebFetchTool) Parameters() map[string]interface{} {

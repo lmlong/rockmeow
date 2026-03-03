@@ -26,7 +26,24 @@ func NewFileTool(workspaceMgr *WorkspaceManager, sandboxed bool) *FileTool {
 func (t *FileTool) Name() string { return "file" }
 
 func (t *FileTool) Description() string {
-	return ""
+	return `文件操作工具。支持的操作：
+
+- read: 读取文件内容
+  示例: {"operation": "read", "path": "/path/to/file.txt"}
+
+- write: 写入文件（会覆盖现有内容）
+  示例: {"operation": "write", "path": "/path/to/file.txt", "content": "文件内容"}
+
+- edit: 编辑文件（替换文本）
+  示例: {"operation": "edit", "path": "/path/to/file.txt", "old_string": "旧文本", "new_string": "新文本"}
+
+- list: 列出目录内容
+  示例: {"operation": "list", "path": "/path/to/directory"}
+
+⚠️ 注意事项：
+- 启用沙箱模式时，只能操作工作目录内的文件
+- edit 操作会替换所有匹配的文本
+- write 操作会自动创建不存在的父目录`
 }
 
 func (t *FileTool) Parameters() map[string]interface{} {

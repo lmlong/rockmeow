@@ -61,13 +61,14 @@
   "channels": {
     "feishu": {
       "enabled": true,
-      "appId": "cli_xxxxx",
-      "appSecret": "xxxxxxx"
+      "appId": "cli_a904272b23b89cb3",
+      "appSecret": "9XxL2DnKzj82WTdPaKmzPj84btdqABya"
     }
   },
   "tools": {
     "restrictToWorkspace": false,
     "websearch": {
+      "tavilyApiKey": "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",
       "bochaApiKey": "sk-445f2765d1a8499db01a953b45b48ea8",
       "maxResults": 5
     },

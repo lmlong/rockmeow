@@ -50,7 +50,19 @@ func (t *TTSTool) Name() string {
 
 // Description 返回工具描述
 func (t *TTSTool) Description() string {
-	return "语音合成"
+	return `语音合成（TTS）工具。将文本转换为语音。
+
+**参数**：
+- action: "synthesize"（目前仅支持合成）
+- text: 要合成的文本（必填）
+- voice: 音色（可选，默认 Cherry）
+
+**触发场景**：
+- "读出来"、"念给我听"
+- "转成语音"、"转成音频"
+- "朗读这段文字"
+
+详细用法请先加载 tts skill。`
 }
 
 // Parameters 返回参数定义

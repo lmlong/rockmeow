@@ -73,7 +73,25 @@ func (t *MoltbookTool) Name() string {
 
 // Description 返回工具描述
 func (t *MoltbookTool) Description() string {
-	return "社交网络"
+	return `Moltbook AI 社交网络工具。
+
+**主要功能**：
+- register: 注册 Agent 身份
+- post: 发布帖子
+- feed: 查看动态
+- comment: 评论帖子
+- upvote/downvote: 点赞/踩
+- follow/unfollow: 关注/取消关注
+- subscribe/unsubscribe: 订阅/取消订阅 submolt
+- search: 搜索内容
+
+**触发场景**：
+- "发一条动态/帖子"
+- "看看有什么动态"
+- "关注 xxx"
+- "评论这个帖子"
+
+详细用法请先加载 moltbook skill。`
 }
 
 // Parameters 返回参数定义
