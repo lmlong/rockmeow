@@ -808,26 +808,22 @@ func (t *OpenCodeTool) Name() string {
 }
 
 func (t *OpenCodeTool) Description() string {
-	return `Delegate ALL coding tasks to OpenCode - a professional AI coding agent.
+	return `Professional AI coding agent for code analysis and optimization.
 
-Use this tool for ANY task involving:
-- Writing code in ANY language (Python, Go, JavaScript, TypeScript, Java, etc.)
-- Creating new source files (.py, .go, .js, .ts, .java, etc.)
-- Editing or modifying existing code
-- Refactoring code
-- Debugging
-- Running tests or build commands
+Use this tool for:
 - Code analysis and review
+- Code optimization and refactoring
+- Writing/editing code
+- Running tests or build commands
 
-IMPORTANT:
-- DO NOT use the 'file' or 'shell' tools after opencode completes
-- OpenCode handles everything including verification
-- If timeout occurs, tell user to try again or split the task
+⚠️ DO NOT use for:
+- Git operations (clone, push, pull) - use shell tool instead
+- Executing git-sync scripts - use shell tool instead
 
 Actions:
-- "prompt": Send a natural language coding task
+- "prompt": Send a coding task (analysis, optimization, writing)
 - "command": Execute slash commands (/init, /review)
-- "shell": Run shell commands (go test, npm run, etc.)`
+- "shell": Run shell commands (go test, npm run) - NOT for git operations!`
 }
 
 func (t *OpenCodeTool) Parameters() map[string]interface{} {
