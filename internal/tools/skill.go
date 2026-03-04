@@ -29,24 +29,28 @@ func (t *SkillTool) Name() string {
 
 // Description 返回工具描述
 func (t *SkillTool) Description() string {
-	return `**必须使用**：加载指定技能的完整指令。
+	return `加载指定技能的完整指令。
 
-触发条件（必须先调用此工具）：
-- 图像/视频生成：生成图片、画图、生成视频、图生视频 → aigc
-- 技能搜索/安装：搜索技能、热门技能、clawhub → clawhub
-- 网络搜索：搜索信息、查询资料 → web
-- coding 任务：编写、编辑、分析、优化代码 → coding
-- git 操作：下载代码、上传代码、推送代码、提交代码、git clone、git push、上库 → git-sync
-- 代码审查：review代码、代码审查、检查代码、审查代码、检视代码 → code-review
-- 天气查询：天气、查询天气、天气预报、今天天气、明天天气、气温 → weather
-- 文件操作：读写文件 → file
-- 系统操作：执行系统命令 → system
-- 定时任务：创建、管理定时任务 → cron
+## 触发条件
 
-调用方式：skill --name <技能名>
-常用技能：aigc, clawhub, web, coding, git-sync, code-review, weather, file, system, cron
+- **代码分析/优化** → coding（使用 opencode 工具）
+- **git 下载/上传** → git-sync（使用 shell 工具执行脚本）
+- 图像/视频生成 → aigc
+- 网络搜索 → web
+- 代码审查 → code-review
+- 天气查询 → weather
+- 文件操作 → file
+- 系统命令 → system
+- 定时任务 → cron
 
-返回完整的技能指令，包含具体操作步骤和示例。`
+## 多任务流程
+
+"下载代码，分析优化，并上库"：
+1. skill git-sync → shell 执行下载脚本
+2. skill coding → opencode 分析优化代码
+3. skill git-sync → shell 执行上传脚本
+
+调用方式：skill --name <技能名>`
 }
 
 // Parameters 返回工具参数定义
@@ -93,18 +97,13 @@ func (t *SkillTool) Execute(ctx context.Context, argsJSON json.RawMessage) (stri
 	logger.Info("Skill loaded successfully", "name", args.Name, "length", len(instruction))
 
 	// 在指令前添加执行提示
-	executorPrompt := `## ⚠️ 重要：必须执行操作
+	executorPrompt := `## ⚠️ 必须立即执行
 
-加载此 skill 后，你必须立即使用相应的工具（如 shell、read、write 等）执行操作。
+加载此 skill 后，你必须立即调用相应的工具执行操作！
 
 **禁止行为**：
-- ❌ 只返回文本说明而不执行操作
-- ❌ 告诉用户"你可以使用..."而不实际执行
-
-**正确行为**：
-- ✅ 立即调用工具执行操作
-- ✅ 等待操作完成
-- ✅ 返回实际执行结果
+- ❌ 只返回文本说明
+- ❌ 不执行任何工具调用
 
 ---
 

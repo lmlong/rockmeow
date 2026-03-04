@@ -82,7 +82,7 @@ func NewOpenCodeClient(cfg *OpenCodeConfig) *OpenCodeClient {
 	}
 	return &OpenCodeClient{
 		baseURL:   strings.TrimSuffix(cfg.BaseURL, "/"),
-		client:    httpclient.WithTimeout(cfg.Timeout),
+		client:    httpclient.WithCustomTimeout(cfg.Timeout),
 		sessions:  make(map[string]*OpenCodeSession),
 		workspace: cfg.Workspace,
 	}
@@ -1103,7 +1103,8 @@ func (t *OpenCodeTool) IsDangerous() bool {
 }
 
 func (t *OpenCodeTool) ShouldLoadByDefault() bool {
-	return false
+	// 只有启用时才加载到 LLM 工具列表
+	return t.config != nil && t.config.Enabled
 }
 
 // SetBaseURL updates the base URL

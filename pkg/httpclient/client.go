@@ -136,6 +136,23 @@ func WithTimeout(timeout time.Duration) *http.Client {
 	}
 }
 
+// WithCustomTimeout returns a new HTTP client with a custom timeout and no ResponseHeaderTimeout.
+// Use this for long-running operations like OpenCode where the server may take a long time to respond.
+func WithCustomTimeout(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			MaxIdleConns:          MaxIdleConns,
+			MaxIdleConnsPerHost:   MaxIdleConnsPerHost,
+			IdleConnTimeout:       IdleConnTimeout,
+			ForceAttemptHTTP2:     true,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 0, // No header timeout for long-running requests
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+		Timeout: timeout,
+	}
+}
+
 // GetTransport returns the shared transport for custom client configurations.
 func GetTransport() *http.Transport {
 	return GetPool().transport
