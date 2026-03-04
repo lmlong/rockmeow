@@ -469,6 +469,7 @@ func (s *HybridStore) addToBuffer(record *VectorRecord) {
 	defer s.bufferMu.Unlock()
 
 	s.buffer = append(s.buffer, record)
+	logger.Info("Memory added to vector buffer", "bufferSize", len(s.buffer), "maxSize", s.bufferSize)
 
 	// 达到缓冲大小或定时刷新
 	if len(s.buffer) >= s.bufferSize {
@@ -497,6 +498,8 @@ func (s *HybridStore) flushBuffer() {
 		s.flushTimer = nil
 	}
 
+	logger.Info("Flushing memory buffer to vector store", "records", len(records))
+
 	// 异步生成向量并存储（添加 panic 恢复）
 	go func() {
 		defer func() {
@@ -516,7 +519,7 @@ func (s *HybridStore) flushBuffer() {
 
 		vectors, err := s.embedding.EmbedBatch(ctx, texts)
 		if err != nil {
-			logger.Warn("Vector flush failed", "error", err)
+			logger.Warn("Vector flush failed (embedding)", "error", err, "records", len(records))
 			return
 		}
 
@@ -529,7 +532,9 @@ func (s *HybridStore) flushBuffer() {
 
 		// 存储到向量数据库
 		if err := s.vectorStore.Upsert(ctx, records); err != nil {
-			logger.Warn("Vector upsert failed", "error", err)
+			logger.Warn("Vector upsert failed", "error", err, "records", len(records))
+		} else {
+			logger.Info("Memory flushed to vector store successfully", "records", len(records))
 		}
 	}()
 }
@@ -546,6 +551,7 @@ func createEmbeddingModel(cfg *config.VectorConfig, providers map[string]config.
 		Provider:  cfg.Embedding.Provider,
 		Model:     cfg.Embedding.Model,
 		Dimension: cfg.Embedding.Dimension,
+		APIBase:   cfg.Embedding.APIBase, // 优先使用配置中的 APIBase
 	}
 
 	// 获取 API Key
@@ -559,7 +565,10 @@ func createEmbeddingModel(cfg *config.VectorConfig, providers map[string]config.
 		}
 		if p, ok := providers[providerName]; ok {
 			embCfg.APIKey = p.APIKey
-			embCfg.APIBase = p.APIBase
+			// 如果配置中没有 APIBase，从 Provider 继承
+			if embCfg.APIBase == "" {
+				embCfg.APIBase = p.APIBase
+			}
 		}
 	}
 

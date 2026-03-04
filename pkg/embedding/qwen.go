@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lingguard/pkg/httpclient"
+	"github.com/lingguard/pkg/logger"
 )
 
 const (
@@ -86,6 +87,8 @@ func (e *QwenEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 		return nil, nil
 	}
 
+	start := time.Now()
+
 	// 构建请求
 	reqBody := embeddingRequest{
 		Model: e.model,
@@ -107,9 +110,12 @@ func (e *QwenEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", e.apiKey))
 
+	logger.Info("[Embedding] Request", "model", e.model, "texts", len(texts), "provider", "qwen")
+
 	// 发送请求
 	resp, err := e.client.Do(req)
 	if err != nil {
+		logger.Error("[Embedding] Request failed", "model", e.model, "error", err, "duration", time.Since(start))
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -121,6 +127,7 @@ func (e *QwenEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		logger.Error("[Embedding] API error", "model", e.model, "status", resp.StatusCode, "body", string(body), "duration", time.Since(start))
 		return nil, fmt.Errorf("api error: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
@@ -139,6 +146,8 @@ func (e *QwenEmbedding) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 	for i, item := range result.Data {
 		vectors[i] = item.Embedding
 	}
+
+	logger.Info("[Embedding] Response", "model", e.model, "vectors", len(vectors), "tokens", result.Usage.TotalTokens, "duration", time.Since(start))
 
 	return vectors, nil
 }

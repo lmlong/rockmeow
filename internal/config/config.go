@@ -15,10 +15,7 @@ type Config struct {
 	Agents    AgentsConfig              `json:"agents"`
 	Channels  ChannelsConfig            `json:"channels"`
 	Tools     ToolsConfig               `json:"tools"`
-	Storage   StorageConfig             `json:"storage"`
 	Logging   LoggingConfig             `json:"logging"`
-	Speech    *SpeechConfig             `json:"speech,omitempty"`    // 语音识别配置
-	Cron      *CronConfig               `json:"cron,omitempty"`      // 定时任务配置
 	Heartbeat *HeartbeatConfig          `json:"heartbeat,omitempty"` // 心跳服务配置
 	WebUI     *WebUIConfig              `json:"webui,omitempty"`     // Web UI 配置
 	Timeouts  *TimeoutsConfig           `json:"timeouts,omitempty"`  // 超时配置
@@ -44,16 +41,16 @@ type AgentsConfig struct {
 	MaxToolIterations  int           `json:"maxToolIterations"`            // 最大工具迭代次数
 	MemoryWindow       int           `json:"memoryWindow"`                 // 历史消息窗口大小
 	SystemPrompt       string        `json:"systemPrompt"`
-	MemoryConfig       *MemoryConfig `json:"memory,omitempty"` // 记忆系统配置
+	MemoryConfig       *MemoryConfig `json:"memory,omitempty"`             // 记忆系统配置
 	SessionLockTimeout int           `json:"sessionLockTimeout,omitempty"` // 会话锁超时（分钟），默认 10
 	// 注：Temperature 和 MaxTokens 从 Provider 配置中获取，避免重复
 	// 注：Skills 目录固定在 ~/.lingguard/skills/
 }
 
 // MemoryConfig 记忆系统配置（参考 nanobot）
-// 记忆文件固定存储在 ~/.lingguard/memory/ 目录下
 type MemoryConfig struct {
 	Enabled         bool          `json:"enabled"`                   // 是否启用持久化记忆
+	Path            string        `json:"path,omitempty"`            // 记忆存储路径，默认 ~/.lingguard/memory
 	RecentDays      int           `json:"recentDays,omitempty"`      // 加载最近几天的日志，默认 3
 	MaxHistoryLines int           `json:"maxHistoryLines,omitempty"` // 历史记录最大行数，默认 1000
 	Vector          *VectorConfig `json:"vector,omitempty"`          // 向量检索配置
@@ -149,6 +146,10 @@ type ToolsConfig struct {
 	AIGC *AIGCConfig `json:"aigc,omitempty"` // AI 内容生成配置
 	// TTS (Text-to-Speech) - 语音合成
 	TTS *TTSConfig `json:"tts,omitempty"` // 语音合成配置
+	// Speech (ASR) - 语音识别
+	Speech *SpeechConfig `json:"speech,omitempty"` // 语音识别配置
+	// Cron - 定时任务
+	Cron *CronConfig `json:"cron,omitempty"` // 定时任务配置
 	// Moltbook - AI 社交网络
 	Moltbook *MoltbookConfig `json:"moltbook,omitempty"` // Moltbook 配置
 }
@@ -186,6 +187,7 @@ type AIGCConfig struct {
 	Enabled              bool   `json:"enabled"`                        // 是否启用
 	Provider             string `json:"provider,omitempty"`             // 提供商: "qwen" (通义万相)
 	APIKey               string `json:"apiKey,omitempty"`               // API Key (可从 Provider 配置继承)
+	APIBase              string `json:"apiBase,omitempty"`              // API 基础 URL
 	TextToImage          string `json:"textToImage,omitempty"`          // 文生图模型，默认 wan2.6-t2i
 	TextToVideo          string `json:"textToVideo,omitempty"`          // 文生视频模型，默认 wan2.6-t2v
 	ImageToVideo         string `json:"imageToVideo,omitempty"`         // 图生视频模型，默认 wan2.6-i2v-flash
@@ -305,18 +307,20 @@ type CORSConfig struct {
 // TimeoutsConfig 超时配置
 type TimeoutsConfig struct {
 	// HTTP 客户端超时 (秒)
-	HTTPDefault    int `json:"httpDefault,omitempty"`    // 默认 HTTP 超时，默认 30
-	HTTPLong       int `json:"httpLong,omitempty"`       // 长时间操作 HTTP 超时，默认 60
-	HTTPExtraLong  int `json:"httpExtraLong,omitempty"`  // 超长时间操作 HTTP 超时，默认 120
+	HTTPDefault   int `json:"httpDefault,omitempty"`   // 默认 HTTP 超时，默认 30
+	HTTPLong      int `json:"httpLong,omitempty"`      // 长时间操作 HTTP 超时，默认 60
+	HTTPExtraLong int `json:"httpExtraLong,omitempty"` // 超长时间操作 HTTP 超时，默认 120
 	// 轮询间隔 (毫秒)
-	PollInterval   int `json:"pollInterval,omitempty"`   // 状态轮询间隔，默认 3000 (3s)
-	PollShort      int `json:"pollShort,omitempty"`      // 短轮询间隔，默认 100 (100ms)
+	PollInterval int `json:"pollInterval,omitempty"` // 状态轮询间隔，默认 3000 (3s)
+	PollShort    int `json:"pollShort,omitempty"`    // 短轮询间隔，默认 100 (100ms)
 	// 重试配置
-	RetryInterval  int `json:"retryInterval,omitempty"`  // 重试间隔 (毫秒)，默认 5000 (5s)
-	RetryShort     int `json:"retryShort,omitempty"`     // 短重试间隔 (毫秒)，默认 100 (100ms)
+	RetryInterval int `json:"retryInterval,omitempty"` // 重试间隔 (毫秒)，默认 5000 (5s)
+	RetryShort    int `json:"retryShort,omitempty"`    // 短重试间隔 (毫秒)，默认 100 (100ms)
 	// 其他超时
-	SessionLock    int `json:"sessionLock,omitempty"`    // 会话锁超时 (分钟)，默认 10
+	SessionLock int `json:"sessionLock,omitempty"` // 会话锁超时 (分钟)，默认 10
 }
+
+// DefaultConfig 默认配
 // DefaultConfig 默认配置
 func DefaultConfig() *Config {
 	return &Config{
@@ -329,6 +333,7 @@ func DefaultConfig() *Config {
 			SystemPrompt:      "You are LingGuard, a helpful AI assistant.",
 			MemoryConfig: &MemoryConfig{
 				Enabled:            true,
+				Path:               "~/.lingguard/memory",
 				RecentDays:         3,
 				MaxHistoryLines:    1000,
 				AutoRecall:         true,
@@ -343,18 +348,14 @@ func DefaultConfig() *Config {
 		Tools: ToolsConfig{
 			RestrictToWorkspace: true,
 			Workspace:           "~/.lingguard/workspace",
-		},
-		Storage: StorageConfig{
-			Type: "file", // 改为文件存储
-			Path: "~/.lingguard/memory",
+			Cron: &CronConfig{
+				Enabled:   true,
+				StorePath: "~/.lingguard/cron/jobs.json",
+			},
 		},
 		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "text",
-		},
-		Cron: &CronConfig{
-			Enabled:   true,
-			StorePath: "~/.lingguard/cron/jobs.json",
 		},
 		Heartbeat: &HeartbeatConfig{
 			Enabled:  true,

@@ -62,7 +62,7 @@ type AIGCConfig struct {
 func DefaultAIGCConfig() *AIGCConfig {
 	home, _ := os.UserHomeDir()
 	return &AIGCConfig{
-		APIBase:              "https://dashscope.aliyuncs.com/api/v1/services/aigc",
+		APIBase:              "https://dashscope.aliyuncs.com/api/v1",
 		TextToImage:          "wan2.6-t2i",
 		TextToVideo:          "wan2.6-t2v",
 		ImageToVideo:         "wan2.6-i2v-flash",
@@ -75,7 +75,7 @@ func DefaultAIGCConfig() *AIGCConfig {
 // NewAIGCTool 创建图像生成工具
 func NewAIGCTool(cfg *AIGCConfig) *AIGCTool {
 	if cfg.APIBase == "" {
-		cfg.APIBase = "https://dashscope.aliyuncs.com/api/v1/services/aigc"
+		cfg.APIBase = "https://dashscope.aliyuncs.com/api/v1"
 	}
 	if cfg.TextToImage == "" {
 		cfg.TextToImage = "wan2.6-t2i"
@@ -514,7 +514,7 @@ func (t *AIGCTool) submitVideoToVideoTask(ctx context.Context, reqBody interface
 	}
 
 	// 使用 video-generation API 端点
-	url := "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
+	url := t.apiBase + "/services/aigc/video-generation/video-synthesis"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
@@ -557,7 +557,7 @@ func (t *AIGCTool) submitImageToVideoTask(ctx context.Context, reqBody interface
 	}
 
 	// 使用图生视频 API 端点
-	url := "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
+	url := t.apiBase + "/services/aigc/video-generation/video-synthesis"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
@@ -637,7 +637,7 @@ func (t *AIGCTool) callImageAPI(ctx context.Context, reqBody interface{}) (*imag
 	}
 
 	// wan2.6-t2i 使用 multimodal-generation API（同步）
-	url := "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+	url := t.apiBase + "/services/aigc/multimodal-generation/generation"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -677,7 +677,7 @@ func (t *AIGCTool) callImageAPI(ctx context.Context, reqBody interface{}) (*imag
 // waitForImageResult 等待图片生成结果
 func (t *AIGCTool) waitForImageResult(ctx context.Context, taskID string) (*imageAPIResponse, error) {
 	// 阿里云任务查询 URL
-	url := fmt.Sprintf("https://dashscope.aliyuncs.com/api/v1/tasks/%s", taskID)
+	url := fmt.Sprintf("%s/tasks/%s", t.apiBase, taskID)
 	client := httpclient.Default()
 	maxAttempts := 60 // 最多等待 5 分钟
 
@@ -735,7 +735,7 @@ func (t *AIGCTool) submitVideoTask(ctx context.Context, reqBody interface{}) (st
 	}
 
 	// 使用 video-generation API 端点
-	url := "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
+	url := t.apiBase + "/services/aigc/video-generation/video-synthesis"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
@@ -772,7 +772,7 @@ func (t *AIGCTool) submitVideoTask(ctx context.Context, reqBody interface{}) (st
 // waitForVideoResult 等待视频生成结果
 func (t *AIGCTool) waitForVideoResult(ctx context.Context, taskID string) (*videoAPIResponse, error) {
 	// 使用统一的任务查询 URL
-	url := fmt.Sprintf("https://dashscope.aliyuncs.com/api/v1/tasks/%s", taskID)
+	url := fmt.Sprintf("%s/tasks/%s", t.apiBase, taskID)
 	client := httpclient.Default()
 	maxAttempts := 120 // 最多等待 10 分钟（视频生成较慢）
 
@@ -955,7 +955,7 @@ func (t *AIGCTool) uploadVideoForAPI(ctx context.Context, videoData []byte, ext 
 	filename := fmt.Sprintf("video-%s%s", timestamp, ext)
 
 	// 步骤1: 获取上传凭证
-	policyURL := fmt.Sprintf("https://dashscope.aliyuncs.com/api/v1/uploads?action=getPolicy&model=%s", t.videoToVideo)
+	policyURL := fmt.Sprintf("%s/uploads?action=getPolicy&model=%s", t.apiBase, t.videoToVideo)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", policyURL, nil)
 	if err != nil {

@@ -155,8 +155,16 @@ func (t *MemoryTool) actionRemember(category, fact string) (string, error) {
 		return "", fmt.Errorf("fact is required for remember action")
 	}
 
-	if err := t.store.AddMemory(category, fact); err != nil {
-		return "", fmt.Errorf("failed to remember: %w", err)
+	// 优先使用 HybridStore（支持向量索引）
+	if t.hybridStore != nil {
+		if err := t.hybridStore.AddMemory(category, fact); err != nil {
+			return "", fmt.Errorf("failed to remember: %w", err)
+		}
+	} else {
+		// 回退到 FileStore
+		if err := t.store.AddMemory(category, fact); err != nil {
+			return "", fmt.Errorf("failed to remember: %w", err)
+		}
 	}
 
 	return fmt.Sprintf("Remembered: [%s] %s", category, fact), nil

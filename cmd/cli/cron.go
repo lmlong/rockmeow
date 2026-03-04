@@ -353,8 +353,8 @@ func initCronService() (*config.Config, *cron.Service, error) {
 	}
 
 	storePath := utils.ExpandHome("~/.lingguard/cron/jobs.json")
-	if cfg.Cron != nil && cfg.Cron.StorePath != "" {
-		storePath = utils.ExpandHome(cfg.Cron.StorePath)
+	if cfg.Tools.Cron != nil && cfg.Tools.Cron.StorePath != "" {
+		storePath = utils.ExpandHome(cfg.Tools.Cron.StorePath)
 	}
 
 	service := cron.NewService(storePath, nil)

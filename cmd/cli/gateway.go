@@ -107,8 +107,8 @@ func runGateway() error {
 	// 启动定时任务服务
 	var cronService *cron.Service
 	var cronWrapper *tools.CronServiceWrapper
-	if cfg.Cron != nil && cfg.Cron.Enabled {
-		storePath := utils.ExpandHome(cfg.Cron.StorePath)
+	if cfg.Tools.Cron != nil && cfg.Tools.Cron.Enabled {
+		storePath := utils.ExpandHome(cfg.Tools.Cron.StorePath)
 		if storePath == "" {
 			storePath = utils.ExpandHome("~/.lingguard/cron/jobs.json")
 		}
@@ -333,7 +333,7 @@ func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace strin
 		if cfg.Channels.Feishu.AppID == "" || cfg.Channels.Feishu.AppSecret == "" {
 			return fmt.Errorf("feishu channel enabled but appId or appSecret not configured")
 		}
-		mgr.RegisterChannel(channels.NewFeishuChannel(cfg.Channels.Feishu, cfg.Speech, cfg.Providers, workspace, handler))
+		mgr.RegisterChannel(channels.NewFeishuChannel(cfg.Channels.Feishu, cfg.Tools.Speech, cfg.Providers, workspace, handler))
 		logger.Info("Feishu channel registered")
 	}
 

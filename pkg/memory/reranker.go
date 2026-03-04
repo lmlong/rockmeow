@@ -8,14 +8,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/lingguard/pkg/httpclient"
+	"github.com/lingguard/pkg/logger"
 )
 
 const (
-	// Qwen Rerank API 配置
-	QwenRerankAPIBase = "https://dashscope.aliyuncs.com/services/aigc/text-rerank"
-	QwenRerankModel   = "qwen3-vl-rerank"
+	// Qwen Rerank API 默认配置（可通过配置文件覆盖）
+	QwenRerankAPIBase = "https://dashscope.aliyuncs.com/compatible-api/v1"
+	QwenRerankModel   = "qwen3-rerank"
 )
 
 // RerankResult 重排序结果
@@ -73,6 +75,8 @@ func (r *QwenReranker) Rerank(ctx context.Context, query string, documents []str
 		return nil, nil
 	}
 
+	start := time.Now()
+
 	// 如果 topK <= 0 或大于文档数，使用文档数
 	if topK <= 0 || topK > len(documents) {
 		topK = len(documents)
@@ -96,7 +100,7 @@ func (r *QwenReranker) Rerank(ctx context.Context, query string, documents []str
 	}
 
 	// 创建请求
-	req, err := http.NewRequestWithContext(ctx, "POST", r.apiBase+"/rerank", bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", r.apiBase+"/reranks", bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -104,9 +108,12 @@ func (r *QwenReranker) Rerank(ctx context.Context, query string, documents []str
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", r.apiKey))
 
+	logger.Info("[Reranker] Request", "model", r.model, "documents", len(documents), "topK", topK, "provider", "qwen")
+
 	// 发送请求
 	resp, err := r.client.Do(req)
 	if err != nil {
+		logger.Error("[Reranker] Request failed", "model", r.model, "error", err, "duration", time.Since(start))
 		return nil, fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -118,6 +125,7 @@ func (r *QwenReranker) Rerank(ctx context.Context, query string, documents []str
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		logger.Error("[Reranker] API error", "model", r.model, "status", resp.StatusCode, "body", string(body), "duration", time.Since(start))
 		return nil, fmt.Errorf("api error: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
@@ -129,13 +137,15 @@ func (r *QwenReranker) Rerank(ctx context.Context, query string, documents []str
 
 	// 转换结果
 	results := make([]RerankResult, len(result.Output.Results))
-	for i, r := range result.Output.Results {
+	for i, res := range result.Output.Results {
 		results[i] = RerankResult{
-			Index:          r.Index,
-			RelevanceScore: r.RelevanceScore,
-			Document:       r.Document,
+			Index:          res.Index,
+			RelevanceScore: res.RelevanceScore,
+			Document:       res.Document,
 		}
 	}
+
+	logger.Info("[Reranker] Response", "model", r.model, "results", len(results), "tokens", result.Usage.TotalTokens, "duration", time.Since(start))
 
 	return results, nil
 }

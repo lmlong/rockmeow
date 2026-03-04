@@ -257,7 +257,7 @@ func (d *Doctor) checkMemory() {
 		return
 	}
 
-	memoryDir := expandPath(d.config.Storage.Path)
+	memoryDir := expandPath(d.getMemoryPath())
 
 	// 检查记忆目录
 	if _, err := os.Stat(memoryDir); os.IsNotExist(err) {
@@ -322,7 +322,7 @@ This file stores long-term memories and important facts.
 
 // checkVectorStore 检查向量存储
 func (d *Doctor) checkVectorStore() {
-	memoryDir := expandPath(d.config.Storage.Path)
+	memoryDir := expandPath(d.getMemoryPath())
 	vectorsDB := filepath.Join(memoryDir, "vectors.db")
 
 	if _, err := os.Stat(vectorsDB); os.IsNotExist(err) {
@@ -346,6 +346,16 @@ func (d *Doctor) checkVectorStore() {
 
 	// 测试 Embedding 服务
 	d.testEmbeddingService()
+}
+
+// getMemoryPath 获取记忆存储路径
+func (d *Doctor) getMemoryPath() string {
+	if d.config.Agents.MemoryConfig.Path != "" {
+		return d.config.Agents.MemoryConfig.Path
+	}
+	// 默认路径
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".lingguard", "memory")
 }
 
 // testEmbeddingService 测试 Embedding 服务

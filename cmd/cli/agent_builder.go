@@ -211,6 +211,7 @@ func (b *AgentBuilder) Build() (*agent.Agent, error) {
 	if b.cfg.Tools.AIGC != nil && b.cfg.Tools.AIGC.Enabled {
 		aigcCfg := tools.DefaultAIGCConfig()
 		aigcCfg.APIKey = b.cfg.Tools.AIGC.APIKey
+		aigcCfg.APIBase = b.cfg.Tools.AIGC.APIBase
 
 		// 从 Provider 配置继承 API Key
 		if aigcCfg.APIKey == "" {
