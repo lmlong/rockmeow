@@ -14,21 +14,16 @@ type MessageSender interface {
 
 // MessageTool 消息发送工具
 type MessageTool struct {
-	mu     sync.RWMutex
-	sender MessageSender
-	// 上下文信息（由 Agent 设置）
+	mu      sync.RWMutex
+	sender  MessageSender
 	channel string
 	chatID  string
 }
 
-// NewMessageTool 创建消息发送工具
 func NewMessageTool(sender MessageSender) *MessageTool {
-	return &MessageTool{
-		sender: sender,
-	}
+	return &MessageTool{sender: sender}
 }
 
-// SetContext 设置消息发送上下文
 func (t *MessageTool) SetContext(channel, chatID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -36,17 +31,10 @@ func (t *MessageTool) SetContext(channel, chatID string) {
 	t.chatID = chatID
 }
 
-// GetContext 获取当前上下文
-func (t *MessageTool) GetContext() (channel, chatID string) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.channel, t.chatID
-}
-
 func (t *MessageTool) Name() string { return "message" }
 
 func (t *MessageTool) Description() string {
-	return "Send a message to the user on the current channel. Use for progress updates or notifications."
+	return `发送消息通知给用户（仅用于长时间任务的进度通知）`
 }
 
 func (t *MessageTool) Parameters() map[string]interface{} {
@@ -55,7 +43,7 @@ func (t *MessageTool) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"content": map[string]interface{}{
 				"type":        "string",
-				"description": "The message content to send",
+				"description": "通知内容",
 			},
 		},
 		"required": []string{"content"},
@@ -66,35 +54,28 @@ func (t *MessageTool) Execute(ctx context.Context, params json.RawMessage) (stri
 	var p struct {
 		Content string `json:"content"`
 	}
-
 	if err := json.Unmarshal(params, &p); err != nil {
 		return "", fmt.Errorf("invalid parameters: %w", err)
 	}
-
 	if p.Content == "" {
 		return "", fmt.Errorf("content is required")
 	}
 
 	t.mu.RLock()
-	channel := t.channel
-	chatID := t.chatID
+	channel, chatID := t.channel, t.chatID
 	t.mu.RUnlock()
 
 	if channel == "" || chatID == "" {
-		return "Warning: No channel context set. Message not sent (running in CLI mode?).", nil
+		return "skipped: no channel context", nil
 	}
-
 	if t.sender == nil {
-		return "Warning: Message sender not configured.", nil
+		return "skipped: no sender", nil
 	}
-
 	if err := t.sender.SendMessage(channel, chatID, p.Content); err != nil {
-		return "", fmt.Errorf("failed to send message: %w", err)
+		return "", err
 	}
-
-	return fmt.Sprintf("Message sent to %s:%s", channel, chatID), nil
+	return "ok", nil
 }
 
-func (t *MessageTool) IsDangerous() bool { return false }
-
+func (t *MessageTool) IsDangerous() bool         { return false }
 func (t *MessageTool) ShouldLoadByDefault() bool { return true }

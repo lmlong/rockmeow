@@ -121,17 +121,26 @@ func (m *SubagentManager) createFilteredRegistry() *tools.Registry {
 
 	// 获取允许的工具列表
 	allowedTools := m.config.EnabledTools
-	if len(allowedTools) == 0 {
-		allowedTools = DefaultEnabledTools()
+	if allowedTools == nil {
+		// nil 表示允许所有工具（排除 task 和 task_status 以防止无限嵌套）
+		blockedTools := map[string]bool{
+			"task":        true,
+			"task_status": true,
+		}
+		for _, tool := range m.toolRegistry.List() {
+			if !blockedTools[tool.Name()] {
+				filtered.Register(tool)
+			}
+		}
+		return filtered
 	}
 
-	// 创建白名单集合
+	// 使用白名单过滤
 	allowedSet := make(map[string]bool)
 	for _, name := range allowedTools {
 		allowedSet[name] = true
 	}
 
-	// 只注册允许的工具
 	for _, tool := range m.toolRegistry.List() {
 		if allowedSet[tool.Name()] {
 			filtered.Register(tool)

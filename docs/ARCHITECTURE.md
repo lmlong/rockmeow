@@ -1524,6 +1524,166 @@ func (t *SkillTool) Execute(ctx context.Context, argsJSON json.RawMessage) (stri
 }
 ```
 
+#### 4.7.4 动态工具注入机制
+
+**核心概念**：工具分为两类
+- **默认工具**：`ShouldLoadByDefault() == true`，始终加载（如 skill、memory、message）
+- **动态工具**：`ShouldLoadByDefault() == false`，按需加载（如 aigc、web_search、web_fetch）
+
+**加载流程**：
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         用户请求                                      │
+│                   "生成美女跳舞的图片"                                  │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    第 1 轮 LLM 调用                                   │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  可用工具 (Default Only)                                      │   │
+│  │  ├── skill (默认)                                            │   │
+│  │  ├── memory (默认)                                           │   │
+│  │  └── message (默认)                                          │   │
+│  │                                                              │   │
+│  │  ❌ aigc (不在列表，ShouldLoadByDefault=false)               │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                              │                                      │
+│                              ▼                                      │
+│  LLM 识别图片生成意图 → 调用 skill(name="aigc")                       │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Skill 工具执行                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  1. 加载 skills/aigc/SKILL.md (详细指令)                      │   │
+│  │  2. 查表 skillToToolMapping["aigc"] → ["aigc"]               │   │
+│  │  3. 获取工具定义: registry.GetToolDefinitionsByNames(["aigc"])│   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                              │                                      │
+│                              ▼                                      │
+│  返回 JSON:                                                         │
+│  {                                                                  │
+│    "content": "## AIGC 技能详细指令...(很长的内容)",                  │
+│    "tools": [{ "type": "function", "function": { ... } }]          │
+│  }                                                                  │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│              Agent 解析并注入动态工具到会话                            │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  executeTool() 检测到 skill 工具返回                          │   │
+│  │          ↓                                                   │   │
+│  │  parseAndInjectSkillTools(sessionID, result)                 │   │
+│  │          ↓                                                   │   │
+│  │  addDynamicToolsForSession(sessionID, response.Tools)        │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    第 2 轮 LLM 调用                                   │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  可用工具 (Default + Dynamic)                                 │   │
+│  │  ├── skill (默认)                                            │   │
+│  │  ├── memory (默认)                                           │   │
+│  │  ├── message (默认)                                          │   │
+│  │  └── aigc (✅ 动态注入)                                       │   │
+│  │                                                              │   │
+│  │  上下文消息:                                                  │   │
+│  │  - skill 工具返回的详细指令作为 tool result                   │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                              │                                      │
+│                              ▼                                      │
+│  LLM 根据详细指令调用 aigc 工具                                       │
+│  aigc(action="generate_image", prompt="美女跳舞")                   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Skill 到工具的映射**：
+
+```go
+// internal/tools/skill.go
+var skillToToolMapping = map[string][]string{
+    "aigc":        {"aigc"},
+    "web":         {"web_search", "web_fetch"},
+    "coding":      {"opencode"},
+    "git-sync":    {"shell", "file"},
+    "cron":        {"cron_add", "cron_list", "cron_remove"},
+    "tts":         {"tts"},
+}
+```
+
+#### 4.7.5 会话级动态工具管理
+
+**会话隔离**：动态工具按会话（sessionID）独立存储，不同会话之间互不影响。
+
+```go
+// internal/agent/agent.go
+type Agent struct {
+    // 会话级别动态工具管理
+    sessionDynamicTools   map[string]*sessionDynamicToolsInfo
+}
+
+// 会话级别的动态工具信息（含老化机制）
+type sessionDynamicToolsInfo struct {
+    tools       []map[string]interface{} // 动态加载的工具定义
+    lastUsed    map[string]int           // 工具名 -> 上次使用的请求序号
+    requestSeq  int                      // 当前会话的请求序号
+}
+```
+
+**老化机制**：连续 10 次请求未使用的动态工具将被自动卸载。
+
+```go
+const dynamicToolAgingThreshold = 10 // 连续10次请求未使用则卸载
+
+// 每次请求开始时执行老化检查
+func (a *Agent) ageDynamicToolsForSession(sessionID string) {
+    for _, tool := range session.tools {
+        unusedCount := currentSeq - lastUsed[toolName]
+        if unusedCount > dynamicToolAgingThreshold {
+            // 卸载该工具
+            remove(tool)
+        }
+    }
+}
+```
+
+**使用场景示例**：
+
+```
+会话 A:
+  请求1: "生成图片" → 加载 aigc 工具 (seq=1, lastUsed[aigc]=1)
+  请求2: "再生成一张" → aigc 被调用 (seq=2, lastUsed[aigc]=2)
+  请求3-12: 问其他问题 → aigc 未被使用
+  请求13: 老化检查 → unusedCount=11 > 10, 卸载 aigc
+
+会话 B (同时进行):
+  完全独立，有自己的动态工具和老化计数
+```
+
+#### 4.7.6 最佳实践：业务隔离
+
+由于动态工具会在会话中持久化，**建议每个业务场景使用独立的会话通道**（如独立的飞书群）。
+
+**原因**：
+1. **Token 效率**：避免多个业务的动态工具累积，增加 LLM 输入 token 消耗
+2. **上下文清晰**：每个会话只加载相关工具，减少 LLM 混淆
+3. **老化效率**：独立会话的工具老化更精准
+
+**推荐配置**：
+```
+飞书群 A (AI绘画群)  → 只有 aigc 相关动态工具
+飞书群 B (搜索群)    → 只有 web_search/web_fetch 动态工具
+飞书群 C (编程群)    → 只有 opencode 动态工具
+```
+
+**老化机制的缓解作用**：即使用户在单一通道进行多种业务，老化机制也会自动清理长时间未使用的工具，缓解 token 浪费问题。
+
 #### 4.7.4 技能格式示例
 
 ```yaml

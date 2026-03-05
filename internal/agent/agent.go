@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,7 +77,19 @@ type Agent struct {
 	traceCollector     trace.Collector        // 追踪采集器，可选
 	sessionLockTimeout time.Duration          // 会话锁超时时间
 	steerMgr           *steerManager          // Steer 模式管理器
+	// 会话级别动态工具管理
+	sessionDynamicTools   map[string]*sessionDynamicToolsInfo
+	sessionDynamicToolsMu sync.RWMutex
 }
+
+// sessionDynamicToolsInfo 会话级别的动态工具信息（含老化机制）
+type sessionDynamicToolsInfo struct {
+	tools      []map[string]interface{} // 动态加载的工具定义
+	lastUsed   map[string]int           // 工具名 -> 上次使用的请求序号
+	requestSeq int                      // 当前会话的请求序号
+}
+
+const dynamicToolAgingThreshold = 10 // 连续10次请求未使用则卸载
 
 // NewAgent 创建新代理
 func NewAgent(cfg *config.AgentsConfig, provider providers.Provider, skillsLoader *skills.Loader) *Agent {
@@ -157,16 +170,17 @@ func NewAgentWithMultimodalAndConfig(cfg *config.AgentsConfig, provider provider
 	}
 
 	agent := &Agent{
-		id:                 generateID(),
-		provider:           provider,
-		multimodalProvider: multimodalProvider,
-		toolRegistry:       toolRegistry,
-		sessions:           session.NewManager(sessionStore, cfg.MemoryWindow),
-		skillsMgr:          skillsMgr,
-		config:             cfg,
-		memoryStore:        memStore,
-		hybridStore:        hybridStore,
-		memoryBuilder:      memBuilder,
+		id:                  generateID(),
+		provider:            provider,
+		multimodalProvider:  multimodalProvider,
+		toolRegistry:        toolRegistry,
+		sessions:            session.NewManager(sessionStore, cfg.MemoryWindow),
+		skillsMgr:           skillsMgr,
+		config:              cfg,
+		memoryStore:         memStore,
+		hybridStore:         hybridStore,
+		memoryBuilder:       memBuilder,
+		sessionDynamicTools: make(map[string]*sessionDynamicToolsInfo),
 	}
 
 	// 初始化子代理管理器
@@ -191,7 +205,9 @@ func (a *Agent) UnregisterTool(name string) {
 // RegisterSkillTool 注册技能加载工具
 func (a *Agent) RegisterSkillTool() {
 	if a.skillsMgr != nil {
-		a.toolRegistry.Register(tools.NewSkillTool(a.skillsMgr))
+		skillTool := tools.NewSkillTool(a.skillsMgr)
+		skillTool.SetRegistry(a.toolRegistry)
+		a.toolRegistry.Register(skillTool)
 	}
 }
 
@@ -285,6 +301,177 @@ func (a *Agent) ToolRegistry() *tools.Registry {
 	return a.toolRegistry
 }
 
+// getOrCreateSessionDynamicTools 获取或创建会话的动态工具信息
+func (a *Agent) getOrCreateSessionDynamicTools(sessionID string) *sessionDynamicToolsInfo {
+	a.sessionDynamicToolsMu.Lock()
+	defer a.sessionDynamicToolsMu.Unlock()
+
+	info, exists := a.sessionDynamicTools[sessionID]
+	if !exists {
+		info = &sessionDynamicToolsInfo{
+			tools:      make([]map[string]interface{}, 0),
+			lastUsed:   make(map[string]int),
+			requestSeq: 0,
+		}
+		a.sessionDynamicTools[sessionID] = info
+	}
+	return info
+}
+
+// incrementSessionRequestSeq 增加会话请求序号
+func (a *Agent) incrementSessionRequestSeq(sessionID string) int {
+	a.sessionDynamicToolsMu.Lock()
+	defer a.sessionDynamicToolsMu.Unlock()
+
+	info, exists := a.sessionDynamicTools[sessionID]
+	if !exists {
+		info = &sessionDynamicToolsInfo{
+			tools:      make([]map[string]interface{}, 0),
+			lastUsed:   make(map[string]int),
+			requestSeq: 0,
+		}
+		a.sessionDynamicTools[sessionID] = info
+	}
+	info.requestSeq++
+	return info.requestSeq
+}
+
+// addDynamicToolsForSession 为指定会话添加动态工具
+func (a *Agent) addDynamicToolsForSession(sessionID string, toolDefs []map[string]interface{}) {
+	info := a.getOrCreateSessionDynamicTools(sessionID)
+
+	a.sessionDynamicToolsMu.Lock()
+	defer a.sessionDynamicToolsMu.Unlock()
+
+	// 获取当前请求序号
+	currentSeq := info.requestSeq
+
+	// 合并工具（去重：以工具名称为准）
+	existingNames := make(map[string]bool)
+	for _, t := range info.tools {
+		if fn, ok := t["function"].(map[string]interface{}); ok {
+			if name, ok := fn["name"].(string); ok {
+				existingNames[name] = true
+			}
+		}
+	}
+
+	addedCount := 0
+	for _, t := range toolDefs {
+		if fn, ok := t["function"].(map[string]interface{}); ok {
+			if name, ok := fn["name"].(string); ok {
+				if !existingNames[name] {
+					info.tools = append(info.tools, t)
+					info.lastUsed[name] = currentSeq
+					addedCount++
+					logger.Info("[DynamicTools] Tool added to session", "session", sessionID, "tool", name)
+				}
+			}
+		}
+	}
+
+	logger.Info("[DynamicTools] Session tools updated", "session", sessionID, "added", addedCount, "total", len(info.tools))
+}
+
+// markDynamicToolUsed 标记动态工具被使用（更新 lastUsed）
+func (a *Agent) markDynamicToolUsed(sessionID, toolName string) {
+	a.sessionDynamicToolsMu.Lock()
+	defer a.sessionDynamicToolsMu.Unlock()
+
+	info, exists := a.sessionDynamicTools[sessionID]
+	if !exists {
+		return
+	}
+
+	// 检查是否是动态工具
+	for _, t := range info.tools {
+		if fn, ok := t["function"].(map[string]interface{}); ok {
+			if name, ok := fn["name"].(string); ok && name == toolName {
+				info.lastUsed[toolName] = info.requestSeq
+				logger.Debug("[DynamicTools] Tool usage updated", "session", sessionID, "tool", toolName, "seq", info.requestSeq)
+				return
+			}
+		}
+	}
+}
+
+// ageDynamicToolsForSession 老化检查：移除长时间未使用的动态工具
+func (a *Agent) ageDynamicToolsForSession(sessionID string) {
+	a.sessionDynamicToolsMu.Lock()
+	defer a.sessionDynamicToolsMu.Unlock()
+
+	info, exists := a.sessionDynamicTools[sessionID]
+	if !exists || len(info.tools) == 0 {
+		return
+	}
+
+	currentSeq := info.requestSeq
+	var newTools []map[string]interface{}
+	removedCount := 0
+
+	for _, t := range info.tools {
+		if fn, ok := t["function"].(map[string]interface{}); ok {
+			if name, ok := fn["name"].(string); ok {
+				lastUsed := info.lastUsed[name]
+				unusedCount := currentSeq - lastUsed
+				if unusedCount > dynamicToolAgingThreshold {
+					logger.Info("[DynamicTools] Tool aged out", "session", sessionID, "tool", name, "unused_requests", unusedCount)
+					delete(info.lastUsed, name)
+					removedCount++
+					continue
+				}
+			}
+		}
+		newTools = append(newTools, t)
+	}
+
+	if removedCount > 0 {
+		info.tools = newTools
+		logger.Info("[DynamicTools] Session tools after aging", "session", sessionID, "removed", removedCount, "remaining", len(info.tools))
+	}
+}
+
+// getToolDefinitionsWithDynamic 获取指定会话的默认工具 + 动态工具
+func (a *Agent) getToolDefinitionsWithDynamic(sessionID string) []map[string]interface{} {
+	// 获取默认工具
+	defaultTools := a.toolRegistry.GetToolDefinitions()
+
+	a.sessionDynamicToolsMu.RLock()
+	info, exists := a.sessionDynamicTools[sessionID]
+	a.sessionDynamicToolsMu.RUnlock()
+
+	// 如果没有动态工具，直接返回默认工具
+	if !exists || len(info.tools) == 0 {
+		return defaultTools
+	}
+
+	// 合并工具（去重：以工具名称为准）
+	toolMap := make(map[string]map[string]interface{})
+	for _, t := range defaultTools {
+		if fn, ok := t["function"].(map[string]interface{}); ok {
+			if name, ok := fn["name"].(string); ok {
+				toolMap[name] = t
+			}
+		}
+	}
+	for _, t := range info.tools {
+		if fn, ok := t["function"].(map[string]interface{}); ok {
+			if name, ok := fn["name"].(string); ok {
+				toolMap[name] = t
+			}
+		}
+	}
+
+	// 转换为列表
+	result := make([]map[string]interface{}, 0, len(toolMap))
+	for _, t := range toolMap {
+		result = append(result, t)
+	}
+
+	logger.Info("[DynamicTools] Tool definitions for session", "session", sessionID, "default", len(defaultTools), "dynamic", len(info.tools), "total", len(result))
+	return result
+}
+
 // GetSkillInstruction 获取技能指令
 func (a *Agent) GetSkillInstruction(name string) (string, error) {
 	if a.skillsMgr == nil {
@@ -329,6 +516,11 @@ func (a *Agent) ProcessMessageWithMedia(ctx context.Context, sessionID, userMess
 			a.traceCollector.EndTrace(tr, "", nil)
 		}
 	}()
+
+	// 增加会话请求序号（用于动态工具老化机制）
+	a.incrementSessionRequestSeq(sessionID)
+	// 老化检查：移除长时间未使用的动态工具
+	a.ageDynamicToolsForSession(sessionID)
 
 	// 1. 获取或创建会话
 	s := a.sessions.GetOrCreate(sessionID)
@@ -418,6 +610,11 @@ func (a *Agent) ProcessMessageStreamWithMedia(ctx context.Context, sessionID, us
 			a.traceCollector.EndTrace(tr, "", nil)
 		}
 	}()
+
+	// 增加会话请求序号（用于动态工具老化机制）
+	a.incrementSessionRequestSeq(sessionID)
+	// 老化检查：移除长时间未使用的动态工具
+	a.ageDynamicToolsForSession(sessionID)
 
 	// 1. 获取或创建会话
 	s := a.sessions.GetOrCreate(sessionID)
@@ -534,7 +731,7 @@ func (a *Agent) runLoopWithProvider(ctx context.Context, sessionID string, messa
 
 		// 只有支持工具的 provider 才发送工具定义
 		if provider.SupportsTools() {
-			req.Tools = a.toolRegistry.GetToolDefinitions()
+			req.Tools = a.getToolDefinitionsWithDynamic(sessionID)
 		}
 
 		// 开始 LLM Span
@@ -615,7 +812,7 @@ func (a *Agent) runLoopWithProvider(ctx context.Context, sessionID string, messa
 
 		// 执行工具调用
 		for _, tc := range resp.GetToolCalls() {
-			result, err := a.executeTool(ctx, &tc)
+			result, err := a.executeTool(ctx, sessionID, &tc)
 
 			var resultStr string
 			if err != nil {
@@ -702,7 +899,7 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 
 		// 只有支持工具的 provider 才发送工具定义
 		if provider.SupportsTools() {
-			req.Tools = a.toolRegistry.GetToolDefinitions()
+			req.Tools = a.getToolDefinitionsWithDynamic(sessionID)
 		}
 
 		// 开始 LLM Span
@@ -854,7 +1051,7 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 			callback(stream.NewToolStartEvent(tc.Function.Name))
 
 			// 执行工具
-			result, err := a.executeTool(ctx, &tc)
+			result, err := a.executeTool(ctx, sessionID, &tc)
 
 			// 发送工具结束事件
 			callback(stream.NewToolEndEvent(tc.Function.Name, result, err))
@@ -886,7 +1083,7 @@ func (a *Agent) runLoopStreamWithProvider(ctx context.Context, sessionID string,
 }
 
 // executeTool 执行工具
-func (a *Agent) executeTool(ctx context.Context, tc *llm.ToolCall) (string, error) {
+func (a *Agent) executeTool(ctx context.Context, sessionID string, tc *llm.ToolCall) (string, error) {
 	start := time.Now()
 
 	// 开始 Tool Span
@@ -917,7 +1114,40 @@ func (a *Agent) executeTool(ctx context.Context, tc *llm.ToolCall) (string, erro
 	// 记录工具调用
 	logger.ToolCall(tc.Function.Name, tc.Function.Arguments, result, duration, err)
 
+	// 标记动态工具被使用（用于老化机制）
+	a.markDynamicToolUsed(sessionID, tc.Function.Name)
+
+	// 如果是 skill 工具，解析返回结果并注入动态工具
+	if tc.Function.Name == "skill" && err == nil {
+		a.parseAndInjectSkillTools(sessionID, result)
+	}
+
 	return result, err
+}
+
+// parseAndInjectSkillTools 解析 skill 工具返回的工具定义并注入到指定会话
+func (a *Agent) parseAndInjectSkillTools(sessionID, result string) {
+	var response struct {
+		Content string                   `json:"content"`
+		Tools   []map[string]interface{} `json:"tools,omitempty"`
+	}
+
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		logger.Warn("[DynamicTools] Failed to parse skill response", "error", err)
+		return
+	}
+
+	if len(response.Tools) > 0 {
+		logger.Info("[DynamicTools] Injecting tools from skill", "session", sessionID, "count", len(response.Tools))
+		for _, t := range response.Tools {
+			if fn, ok := t["function"].(map[string]interface{}); ok {
+				if name, ok := fn["name"].(string); ok {
+					logger.Info("[DynamicTools] Tool injected", "session", sessionID, "tool", name)
+				}
+			}
+		}
+		a.addDynamicToolsForSession(sessionID, response.Tools)
+	}
 }
 
 func generateID() string {

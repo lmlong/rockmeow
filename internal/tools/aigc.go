@@ -1073,7 +1073,7 @@ func (t *AIGCTool) uploadVideoForAPI(ctx context.Context, videoData []byte, ext 
 
 // IsDangerous 返回是否为危险操作
 func (t *AIGCTool) IsDangerous() bool {
-	return false
+	return true
 }
 
 func (t *AIGCTool) ShouldLoadByDefault() bool {

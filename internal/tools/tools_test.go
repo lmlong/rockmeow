@@ -393,3 +393,16 @@ func TestFileToolSymlinkProtection(t *testing.T) {
 		t.Logf("Path traversal protection worked: %v", err)
 	}
 }
+
+func TestAIGCToolShouldNotLoadByDefault(t *testing.T) {
+	cfg := DefaultAIGCConfig()
+	tool := NewAIGCTool(cfg)
+
+	if tool.Name() != "aigc" {
+		t.Errorf("Expected name=aigc, got %s", tool.Name())
+	}
+
+	if tool.ShouldLoadByDefault() {
+		t.Error("AIGC tool should NOT load by default (loaded via skill)")
+	}
+}

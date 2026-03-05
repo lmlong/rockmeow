@@ -1,10 +1,10 @@
-// Package tools 工具系统
 package tools
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/lingguard/internal/skills"
 	"github.com/lingguard/pkg/logger"
@@ -13,6 +13,8 @@ import (
 // SkillTool 技能加载工具
 type SkillTool struct {
 	skillsMgr *skills.Manager
+	registry  *Registry
+	mu        sync.RWMutex
 }
 
 // NewSkillTool 创建技能工具
@@ -22,58 +24,68 @@ func NewSkillTool(mgr *skills.Manager) *SkillTool {
 	}
 }
 
-// Name 返回工具名称
-func (t *SkillTool) Name() string {
-	return "skill"
+// SetRegistry 设置工具注册表
+func (t *SkillTool) SetRegistry(registry *Registry) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.registry = registry
 }
 
-// Description 返回工具描述
+func (t *SkillTool) Name() string { return "skill" }
+
 func (t *SkillTool) Description() string {
-	return `加载指定技能的完整指令。
+	return `加载指定技能的完整指令和工具定义。
 
 ## 触发条件
 
-- **代码分析/优化** → coding（使用 opencode 工具）
-- **git 下载/上传** → git-sync（使用 shell 工具执行脚本）
 - 图像/视频生成 → aigc
 - 网络搜索 → web
-- 代码审查 → code-review
-- 天气查询 → weather
+- 代码分析/优化 → coding
+- git 下载/上传 → git-sync
 - 文件操作 → file
-- 系统命令 → system
 - 定时任务 → cron
-
-## 多任务流程
-
-"下载代码，分析优化，并上库"：
-1. skill git-sync → shell 执行下载脚本
-2. skill coding → opencode 分析优化代码
-3. skill git-sync → shell 执行上传脚本
 
 调用方式：skill --name <技能名>`
 }
 
-// Parameters 返回工具参数定义
 func (t *SkillTool) Parameters() map[string]interface{} {
 	return map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
 			"name": map[string]interface{}{
 				"type":        "string",
-				"description": "Name of the skill to load (e.g., 'git-sync', 'code-review')",
+				"description": "技能名称 (e.g., 'aigc', 'web', 'coding')",
 			},
 		},
 		"required": []string{"name"},
 	}
 }
 
-// Execute 执行工具
+// skillToToolMapping skill 名称到工具名称的映射
+var skillToToolMapping = map[string][]string{
+	"aigc":        {"aigc"},
+	"coding":      {"opencode"},
+	"git-sync":    {"shell", "file"},
+	"web":         {"web_search", "web_fetch"},
+	"code-review": {"opencode"},
+	"weather":     {"web_search"},
+	"file":        {"file"},
+	"system":      {"shell"},
+	"cron":        {"cron_add", "cron_list", "cron_remove"},
+	"tts":         {"tts"},
+}
+
+// skillResponse skill 工具返回格式
+type skillResponse struct {
+	Content string                   `json:"content"`
+	Tools   []map[string]interface{} `json:"tools,omitempty"`
+}
+
 func (t *SkillTool) Execute(ctx context.Context, argsJSON json.RawMessage) (string, error) {
 	if t.skillsMgr == nil {
 		return "", fmt.Errorf("skills manager not initialized")
 	}
 
-	// 解析参数
 	var args struct {
 		Name string `json:"name"`
 	}
@@ -85,39 +97,65 @@ func (t *SkillTool) Execute(ctx context.Context, argsJSON json.RawMessage) (stri
 		return "", fmt.Errorf("skill name is required")
 	}
 
-	logger.Info("Loading skill", "name", args.Name)
+	logger.Info("===== [Skill] Loading skill =====", "name", args.Name)
 
 	// 获取技能指令
 	instruction, err := t.skillsMgr.GetSkillInstruction(args.Name)
 	if err != nil {
-		logger.Error("Failed to load skill", "name", args.Name, "error", err)
+		logger.Error("[Skill] Failed to load skill", "name", args.Name, "error", err)
 		return "", fmt.Errorf("failed to load skill '%s': %w", args.Name, err)
 	}
 
-	logger.Info("Skill loaded successfully", "name", args.Name, "length", len(instruction))
+	logger.Info("[Skill] Instruction loaded", "name", args.Name, "length", len(instruction))
 
-	// 在指令前添加执行提示
-	executorPrompt := `## ⚠️ 必须立即执行
+	// 构建返回结果
+	response := skillResponse{
+		Content: instruction,
+	}
 
-加载此 skill 后，你必须立即调用相应的工具执行操作！
+	// 获取关联的工具定义
+	t.mu.RLock()
+	registry := t.registry
+	t.mu.RUnlock()
 
-**禁止行为**：
-- ❌ 只返回文本说明
-- ❌ 不执行任何工具调用
+	if registry != nil {
+		if toolNames, ok := skillToToolMapping[args.Name]; ok {
+			logger.Info("[Skill] Mapping tools", "skill", args.Name, "tools", toolNames)
 
----
+			toolDefs := registry.GetToolDefinitionsByNames(toolNames)
+			if len(toolDefs) > 0 {
+				response.Tools = toolDefs
+				logger.Info("===== [Skill] Tools attached =====", "skill", args.Name, "tool_count", len(toolDefs))
 
-`
+				// 记录每个工具的名称
+				for _, def := range toolDefs {
+					if fn, ok := def["function"].(map[string]interface{}); ok {
+						if name, ok := fn["name"].(string); ok {
+							logger.Info("[Skill] Tool definition included", "skill", args.Name, "tool", name)
+						}
+					}
+				}
+			} else {
+				logger.Warn("[Skill] No tool definitions found", "skill", args.Name, "tools", toolNames)
+			}
+		} else {
+			logger.Debug("[Skill] No tool mapping for skill", "name", args.Name)
+		}
+	} else {
+		logger.Warn("[Skill] Registry not set, cannot attach tools")
+	}
 
-	return executorPrompt + instruction, nil
+	// 返回 JSON 格式
+	result, err := json.Marshal(response)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal response: %w", err)
+	}
+
+	logger.Info("===== [Skill] Load complete =====", "name", args.Name, "result_length", len(result))
+
+	return string(result), nil
 }
 
-// IsDangerous 返回是否为危险操作
-func (t *SkillTool) IsDangerous() bool {
-	return false
-}
+func (t *SkillTool) IsDangerous() bool { return false }
 
-// ShouldLoadByDefault 返回是否默认加载（元工具，必须加载）
-func (t *SkillTool) ShouldLoadByDefault() bool {
-	return true
-}
+func (t *SkillTool) ShouldLoadByDefault() bool { return true }

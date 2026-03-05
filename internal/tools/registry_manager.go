@@ -53,7 +53,7 @@ func (r *Registry) List() []Tool {
 	return tools
 }
 
-// GetToolDefinitions returns tool definitions that should be loaded by default
+// GetToolDefinitions 返回默认加载的工具定义
 func (r *Registry) GetToolDefinitions() []map[string]interface{} {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -67,8 +67,21 @@ func (r *Registry) GetToolDefinitions() []map[string]interface{} {
 	return defs
 }
 
-// Execute 执行工具（注意：此方法不传递 context，建议使用带 context 的版本）
-// Deprecated: Use ExecuteWithContext instead
+// GetToolDefinitionsByNames 按名称获取工具定义（供 skill 工具使用）
+func (r *Registry) GetToolDefinitionsByNames(names []string) []map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	defs := make([]map[string]interface{}, 0, len(names))
+	for _, name := range names {
+		if t, ok := r.tools[name]; ok {
+			defs = append(defs, Definition(t))
+		}
+	}
+	return defs
+}
+
+// Execute 执行工具
 func (r *Registry) Execute(name string, params json.RawMessage) (string, error) {
 	return r.ExecuteWithContext(context.Background(), name, params)
 }

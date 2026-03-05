@@ -23,28 +23,31 @@ func NewTaskTool(manager *SubagentManager) *TaskTool {
 func (t *TaskTool) Name() string { return "task" }
 
 func (t *TaskTool) Description() string {
-	return `启动后台任务执行器（subagent）。
+	return `启动后台子代理执行复杂任务。
 
-## 🚨 触发规则
+## 🔴 严格使用规则
 
-**必须使用 task 工具的场景**：
-- 复杂编码优化：代码重构、大规模文件处理、多文件修改
-- 长时间任务：数据分析、批量处理、复杂代码生成
+**只有在以下场景才使用 task 工具**：
+- 一个请求包含**多个独立的复杂子任务**（如：同时修改多个模块的代码）
+- 需要**并行执行**多个长时间任务
+- 用户**明确要求后台执行**的任务
 
-**禁止使用 task 工具的场景**（主代理直接执行）：
-- git 操作（下载/上传代码）→ 调用 skill --name git-sync，然后执行 shell
-- 代码审查 → 调用 skill --name code-review，然后执行 shell
-- 图像/视频生成 → 直接调用 aigc 工具
-- 网络搜索 → 直接调用 web_search 工具
-- 天气查询 → 直接调用 skill --name weather
-- 简单问答 → 直接回复用户
+## 🚫 禁止使用 task 的场景（直接调用工具）
 
-## 子代理能力
+| 场景 | 正确做法 |
+|------|----------|
+| 生成图片/视频 | 直接调用 aigc 工具 |
+| 语音合成 | 直接调用 tts 工具 |
+| 网络搜索 | 直接调用 web_search 工具 |
+| 单个代码修改 | 直接使用 shell/file 工具 |
+| git 操作 | 加载 skill 后直接执行 shell |
+| 简单问答 | 直接回复用户 |
 
-子代理可以使用：shell、file、skill 工具
-子代理不能使用：task（防止无限嵌套）
+## ⚠️ 重要提示
 
-返回 task_id，可用 task_status 查询进度和结果。`
+- 使用 task 会增加开销，简单的任务直接执行更快
+- 子代理可以使用所有工具（除了 task，防止无限嵌套）
+- 返回 task_id，可用 task_status 查询进度和结果`
 }
 
 func (t *TaskTool) Parameters() map[string]interface{} {
