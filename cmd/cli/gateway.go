@@ -17,6 +17,7 @@ import (
 	"github.com/lingguard/internal/taskboard"
 	"github.com/lingguard/internal/tools"
 	"github.com/lingguard/internal/trace"
+	"github.com/lingguard/internal/webchat"
 	"github.com/lingguard/pkg/httpclient"
 	"github.com/lingguard/pkg/logger"
 	"github.com/lingguard/pkg/utils"
@@ -215,11 +216,6 @@ func runGateway() error {
 		if cronService != nil {
 			webUIServer.SetCronDeleter(cronService)
 		}
-
-		if err := webUIServer.Start(); err != nil {
-			return fmt.Errorf("start web ui server: %w", err)
-		}
-		logger.Info("Web UI server started", "addr", webUIServer.Address())
 	}
 
 	// 启动心跳服务
@@ -267,8 +263,34 @@ func runGateway() error {
 	workspace = utils.ExpandHome(workspace)
 
 	// 注册渠道
-	if err := registerChannels(cfg, mgr, workspace, handler); err != nil {
+	webChatChannel, err := registerChannels(cfg, mgr, workspace, handler)
+	if err != nil {
 		return err
+	}
+
+	// 如果启用了 WebChat，设置 WebSocket 处理器和 API 处理器
+	if webChatChannel != nil && webUIServer != nil {
+		webUIServer.SetWebSocketHandler(webChatChannel)
+		logger.Info("WebChat WebSocket handler registered")
+
+		// 初始化 WebChat 存储
+		webchatStorePath := utils.ExpandHome("~/.lingguard/webchat/sessions.json")
+		webchatStore, err := webchat.NewSQLiteStore(webchatStorePath)
+		if err != nil {
+			logger.Warn("Failed to init webchat store", "error", err)
+		} else {
+			webchatHandler := webchat.NewHTTPHandler(webchatStore)
+			webUIServer.SetWebChatAPIHandler(webchatHandler)
+			logger.Info("WebChat API handler registered", "store", webchatStorePath)
+		}
+	}
+
+	// 启动 Web UI 服务器（在设置好 WebSocket handler 之后）
+	if webUIServer != nil {
+		if err := webUIServer.Start(); err != nil {
+			return fmt.Errorf("start web ui server: %w", err)
+		}
+		logger.Info("Web UI server started", "addr", webUIServer.Address())
 	}
 
 	// 启动
@@ -327,11 +349,14 @@ func runGateway() error {
 }
 
 // registerChannels 注册所有渠道
-func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace string, handler channels.MessageHandler) error {
+// 返回 WebChat channel 以便设置 WebSocket 处理器
+func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace string, handler channels.MessageHandler) (*channels.WebChatChannel, error) {
+	var webChatChannel *channels.WebChatChannel
+
 	// 飞书渠道
 	if cfg.Channels.Feishu != nil && cfg.Channels.Feishu.Enabled {
 		if cfg.Channels.Feishu.AppID == "" || cfg.Channels.Feishu.AppSecret == "" {
-			return fmt.Errorf("feishu channel enabled but appId or appSecret not configured")
+			return nil, fmt.Errorf("feishu channel enabled but appId or appSecret not configured")
 		}
 		mgr.RegisterChannel(channels.NewFeishuChannel(cfg.Channels.Feishu, cfg.Tools.Speech, cfg.Providers, workspace, handler))
 		logger.Info("Feishu channel registered")
@@ -340,19 +365,27 @@ func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace strin
 	// QQ 渠道
 	if cfg.Channels.QQ != nil && cfg.Channels.QQ.Enabled {
 		if cfg.Channels.QQ.AppID == "" || cfg.Channels.QQ.Secret == "" {
-			return fmt.Errorf("qq channel enabled but appId or secret not configured")
+			return nil, fmt.Errorf("qq channel enabled but appId or secret not configured")
 		}
 		mgr.RegisterChannel(channels.NewQQChannel(cfg.Channels.QQ, handler))
 		logger.Info("QQ channel registered")
 	}
 
-	// 检查是否有渠道
-	if (cfg.Channels.Feishu == nil || !cfg.Channels.Feishu.Enabled) &&
-		(cfg.Channels.QQ == nil || !cfg.Channels.QQ.Enabled) {
-		return fmt.Errorf("no channels enabled, please configure at least one channel")
+	// WebChat 渠道
+	if cfg.Channels.WebChat != nil && cfg.Channels.WebChat.Enabled {
+		webChatChannel = channels.NewWebChatChannel(cfg.Channels.WebChat, handler)
+		mgr.RegisterChannel(webChatChannel)
+		logger.Info("WebChat channel registered")
 	}
 
-	return nil
+	// 检查是否有渠道
+	if (cfg.Channels.Feishu == nil || !cfg.Channels.Feishu.Enabled) &&
+		(cfg.Channels.QQ == nil || !cfg.Channels.QQ.Enabled) &&
+		(cfg.Channels.WebChat == nil || !cfg.Channels.WebChat.Enabled) {
+		return nil, fmt.Errorf("no channels enabled, please configure at least one channel")
+	}
+
+	return webChatChannel, nil
 }
 
 // createCronJobCallback 创建定时任务执行回调

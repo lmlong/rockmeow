@@ -107,8 +107,16 @@ type VectorDbConfig struct {
 
 // ChannelsConfig 渠道配置
 type ChannelsConfig struct {
-	Feishu *FeishuConfig `json:"feishu,omitempty"`
-	QQ     *QQConfig     `json:"qq,omitempty"`
+	Feishu  *FeishuConfig  `json:"feishu,omitempty"`
+	QQ      *QQConfig      `json:"qq,omitempty"`
+	WebChat *WebChatConfig `json:"webchat,omitempty"` // Web 聊天渠道
+}
+
+// WebChatConfig Web 聊天渠道配置
+type WebChatConfig struct {
+	Enabled bool `json:"enabled"` // 是否启用
+	// 注：WebChat 复用 WebUI 服务器，不需要单独的端口配置
+	// WebSocket 端点固定为 /ws/chat
 }
 
 // FeishuConfig 飞书配置

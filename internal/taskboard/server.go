@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/internal/taskboard/web"
 	"github.com/lingguard/internal/trace"
@@ -21,6 +22,22 @@ type Server struct {
 	traceHandler *TraceHTTPHandler
 	server       *http.Server
 	corsConfig   *config.CORSConfig
+
+	// WebChat WebSocket 处理器
+	webSocketHandler WebSocketHandler
+
+	// WebChat API 处理器 (用于会话持久化)
+	webChatAPIHandler WebChatAPIHandler
+}
+
+// WebSocketHandler WebSocket 处理器接口
+type WebSocketHandler interface {
+	HandleWebSocket(conn *websocket.Conn, sessionID string)
+}
+
+// WebChatAPIHandler WebChat API 处理器接口
+type WebChatAPIHandler interface {
+	RegisterRoutes(mux *http.ServeMux)
 }
 
 // NewServer 创建 Web UI 服务器
@@ -75,6 +92,11 @@ func (s *Server) Start() error {
 		s.traceHandler.RegisterRoutes(mux)
 	}
 
+	// 注册 WebChat API 路由（如果启用）
+	if s.webChatAPIHandler != nil {
+		s.webChatAPIHandler.RegisterRoutes(mux)
+	}
+
 	// 静态文件服务
 	staticFS, err := fs.Sub(web.StaticFiles, "static")
 	if err != nil {
@@ -91,6 +113,12 @@ func (s *Server) Start() error {
 		// 其他静态文件
 		http.StripPrefix("/", fileServer).ServeHTTP(w, r)
 	})
+
+	// WebSocket 路由（用于 WebChat）
+	if s.webSocketHandler != nil {
+		mux.HandleFunc("/ws/chat", s.handleWebSocket)
+		logger.Info("WebSocket route registered", "path", "/ws/chat")
+	}
 
 	// CORS 中间件
 	handler := s.corsMiddleware(mux)
@@ -135,6 +163,51 @@ func (s *Server) Address() string {
 // SetCronDeleter 设置 cron 删除器
 func (s *Server) SetCronDeleter(deleter CronDeleter) {
 	s.handler.SetCronDeleter(deleter)
+}
+
+// SetWebSocketHandler 设置 WebSocket 处理器（用于 WebChat）
+func (s *Server) SetWebSocketHandler(handler WebSocketHandler) {
+	s.webSocketHandler = handler
+}
+
+// SetWebChatAPIHandler 设置 WebChat API 处理器
+func (s *Server) SetWebChatAPIHandler(handler WebChatAPIHandler) {
+	s.webChatAPIHandler = handler
+}
+
+// websocketUpgrader WebSocket 升级器
+var websocketUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // 允许所有来源，CORS 由 corsMiddleware 处理
+	},
+}
+
+// handleWebSocket 处理 WebSocket 连接请求
+func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if s.webSocketHandler == nil {
+		http.Error(w, "WebSocket not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// 从查询参数获取 session ID
+	sessionID := r.URL.Query().Get("session")
+	if sessionID == "" {
+		sessionID = uuid.New().String()
+	}
+
+	// 升级为 WebSocket
+	conn, err := websocketUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		logger.Warn("WebSocket upgrade failed", "error", err)
+		return
+	}
+
+	logger.Info("WebSocket connection established", "sessionId", sessionID)
+
+	// 调用处理器
+	s.webSocketHandler.HandleWebSocket(conn, sessionID)
 }
 
 // corsMiddleware CORS 中间件
