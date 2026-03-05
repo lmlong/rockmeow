@@ -322,7 +322,8 @@ def create_skill(name: str, skill_type: str, output_dir: str, description: str, 
     if skill_type != 'basic':
         print(f"  2. 编辑脚本文件")
     print(f"  {'3' if skill_type != 'basic' else '2'}. 运行验证: python3 scripts/validate_skill.py -p {skill_dir}")
-    print(f"  {'4' if skill_type != 'basic' else '3'}. 安装 skill: cp -r {skill_dir} ~/.lingguard/skills/")
+    # 注意：skill 已经在正确位置，新会话会自动加载
+    print(f"  {'3' if skill_type != 'basic' else '2'}. 开始新会话，新 skill 会自动加载")
 
 def main():
     parser = argparse.ArgumentParser(
