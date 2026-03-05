@@ -16,7 +16,7 @@ import (
 
 const (
 	// Qwen Rerank API 默认配置（可通过配置文件覆盖）
-	QwenRerankAPIBase = "https://dashscope.aliyuncs.com/api/v1/services/rerank"
+	QwenRerankAPIBase = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
 	QwenRerankModel   = "qwen3-rerank"
 )
 
@@ -108,7 +108,7 @@ func (r *QwenReranker) Rerank(ctx context.Context, query string, documents []str
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", r.apiKey))
 
-	logger.Info("[Reranker] Request", "model", r.model, "documents", len(documents), "topK", topK, "provider", "qwen")
+	logger.Info("[Reranker] Request", "model", r.model, "apiBase", r.apiBase, "documents", len(documents), "topK", topK, "provider", "qwen")
 
 	// 发送请求
 	resp, err := r.client.Do(req)
@@ -125,7 +125,7 @@ func (r *QwenReranker) Rerank(ctx context.Context, query string, documents []str
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Error("[Reranker] API error", "model", r.model, "status", resp.StatusCode, "body", string(body), "duration", time.Since(start))
+		logger.Error("[Reranker] API error", "model", r.model, "apiBase", r.apiBase, "status", resp.StatusCode, "body", string(body), "duration", time.Since(start))
 		return nil, fmt.Errorf("api error: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
