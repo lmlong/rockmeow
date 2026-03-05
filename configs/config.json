@@ -7,7 +7,7 @@
       "timeout": 120
     },
     "glm": {
-      "apiKey": "xx.xx",
+      "apiKey": "xxx.xxx",
       "apiBase": "https://open.bigmodel.cn/api/anthropic",
       "model": "glm-5",
       "timeout": 120
@@ -18,13 +18,13 @@
       "model": "MiniMax-M2.5"
     },
     "qwencoder": {
-      "apiKey": "sk-sp-xx",
+      "apiKey": "sk-sp-xxx",
       "apiBase": "https://coding.dashscope.aliyuncs.com/v1",
       "model": "qwen3.5-plus",
       "timeout": 120
     },
     "qwen": {
-      "apiKey": "sk-xx",
+      "apiKey": "sk-xxx",
       "model": "qwen3.5-plus"
     }
   },
@@ -61,7 +61,7 @@
             "enabled": true,
             "provider": "qwen",
             "model": "qwen3-rerank",
-            "apiBase": "https://dashscope.aliyuncs.com/compatible-api/v1"
+            "apiBase": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
           }
         }
       }
@@ -70,15 +70,15 @@
   "channels": {
     "feishu": {
       "enabled": true,
-      "appId": "xx",
-      "appSecret": "xx"
+      "appId": "xxx",
+      "appSecret": "xxx"
     }
   },
   "tools": {
     "restrictToWorkspace": true,
     "websearch": {
-      "tavilyApiKey": "tvly-dev-xx",
-      "bochaApiKey": "sk-xx",
+      "tavilyApiKey": "tvly-dev-xxx",
+      "bochaApiKey": "sk-xxx",
       "maxResults": 5
     },
     "webfetch": {
