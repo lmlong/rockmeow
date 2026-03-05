@@ -10,11 +10,11 @@ import (
 type MemoryCategory string
 
 const (
-	CategoryPreference MemoryCategory = "preference" // 用户偏好
-	CategoryFact       MemoryCategory = "fact"       // 事实信息
-	CategoryDecision   MemoryCategory = "decision"   // 决策记录
-	CategoryEntity     MemoryCategory = "entity"     // 实体信息（联系方式等）
-	CategoryOther      MemoryCategory = "other"      // 其他
+	CategoryPreference MemoryCategory = "User Preferences" // 用户偏好
+	CategoryFact       MemoryCategory = "Important Facts"  // 事实信息
+	CategoryDecision   MemoryCategory = "Decisions"        // 决策记录
+	CategoryEntity     MemoryCategory = "Contact Info"     // 实体信息（联系方式等）
+	CategoryOther      MemoryCategory = "Other"            // 其他
 )
 
 // memoryTriggers 记忆触发规则（参考 OpenClaw）

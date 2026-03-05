@@ -53,6 +53,15 @@ This file stores long-term memories and important facts.
 
 ## Important Facts
 <!-- 重要事实记录 -->
+
+## Decisions
+<!-- 决策记录 -->
+
+## Contact Info
+<!-- 联系方式等实体信息 -->
+
+## Other
+<!-- 其他重要信息 -->
 `
 		if err := os.WriteFile(s.memoryFile, []byte(initialContent), 0644); err != nil {
 			return fmt.Errorf("create memory file: %w", err)
