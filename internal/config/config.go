@@ -19,6 +19,29 @@ type Config struct {
 	Heartbeat *HeartbeatConfig          `json:"heartbeat,omitempty"` // 心跳服务配置
 	WebUI     *WebUIConfig              `json:"webui,omitempty"`     // Web UI 配置
 	Timeouts  *TimeoutsConfig           `json:"timeouts,omitempty"`  // 超时配置
+	API       *APIConfig                `json:"api,omitempty"`       // Agent API 配置
+}
+
+// APIConfig Agent API 配置
+type APIConfig struct {
+	Enabled   bool             `json:"enabled"`             // 是否启用 Agent API
+	Port      int              `json:"port,omitempty"`      // 端口，默认使用 WebUI.Port
+	Host      string           `json:"host,omitempty"`      // 主机，默认使用 WebUI.Host
+	Auth      *AuthConfig      `json:"auth,omitempty"`      // 认证配置
+	RateLimit *RateLimitConfig `json:"rateLimit,omitempty"` // 限流配置
+}
+
+// AuthConfig 认证配置
+type AuthConfig struct {
+	Type   string   `json:"type"`             // 认证类型: "token" | "none"
+	Tokens []string `json:"tokens,omitempty"` // 有效的 Token 列表
+}
+
+// RateLimitConfig 限流配置
+type RateLimitConfig struct {
+	Enabled     bool `json:"enabled,omitempty"`     // 是否启用限流
+	RequestsPer int  `json:"requestsPer,omitempty"` // 每分钟请求数限制
+	Burst       int  `json:"burst,omitempty"`       // 突发容量
 }
 
 // ProviderConfig 提供商配置

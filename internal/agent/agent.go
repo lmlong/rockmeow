@@ -288,6 +288,11 @@ func (a *Agent) GetProfileStore() *memory.ProfileStore {
 	return a.profileStore
 }
 
+// GetSessionManager 获取会话管理器
+func (a *Agent) GetSessionManager() *session.Manager {
+	return a.sessions
+}
+
 // IsVectorSearchEnabled 检查是否启用向量检索
 func (a *Agent) IsVectorSearchEnabled() bool {
 	return a.hybridStore != nil && a.hybridStore.IsVectorEnabled()

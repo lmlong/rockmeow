@@ -130,7 +130,7 @@
     },
     "calendar": {
       "enabled": true,
-      "default": "feishu",
+      "default": "dingtalk",
       "accounts": [
         {
           "name": "feishu",
@@ -138,6 +138,12 @@
           "username": "xxx",
           "password": "xxx",
           "timeout": 30
+        },
+        {
+          "name": "dingtalk",
+          "url": "https://calendar.dingtalk.com/dav",
+          "username": "xxx",
+          "password": "xxx"
         }
       ]
     }
@@ -164,6 +170,13 @@
     "trace": {
       "enabled": true,
       "dbPath": "~/.lingguard/webui/trace.db"
+    }
+  },
+  "api": {
+    "enabled": true,
+    "auth": {
+      "type": "token",
+      "tokens": ["1234567890"]
     }
   }
 }

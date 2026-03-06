@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -284,4 +285,183 @@ func (s *Session) IsProcessing() bool {
 // generateID 生成唯一ID
 func generateID() string {
 	return uuid.New().String()[:8]
+}
+
+// ========== API 所需方法 ==========
+
+// SessionInfo 会话信息（用于 API 响应）
+type SessionInfo struct {
+	ID           string    `json:"id"`
+	Title        string    `json:"title"`
+	AgentID      string    `json:"agent_id"`
+	MessageCount int       `json:"message_count"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// SessionDetail 会话详情（用于 API 响应）
+type SessionDetail struct {
+	ID           string            `json:"id"`
+	Title        string            `json:"title"`
+	AgentID      string            `json:"agent_id"`
+	Messages     []*SessionMessage `json:"messages"`
+	MessageCount int               `json:"message_count"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
+}
+
+// SessionMessage 会话消息（用于 API 响应）
+type SessionMessage struct {
+	ID        string    `json:"id"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	Media     []string  `json:"media,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// List 列出会话
+func (m *Manager) List(limit, offset int, agentID string) []SessionInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []SessionInfo
+	count := 0
+
+	for _, s := range m.sessions {
+		if count < offset {
+			count++
+			continue
+		}
+		if len(result) >= limit {
+			break
+		}
+
+		s.messagesMu.RLock()
+		info := SessionInfo{
+			ID:           s.Key,
+			Title:        generateSessionTitle(s),
+			AgentID:      "default",
+			MessageCount: len(s.Messages),
+			CreatedAt:    s.CreatedAt,
+			UpdatedAt:    s.UpdatedAt,
+		}
+		s.messagesMu.RUnlock()
+
+		result = append(result, info)
+		count++
+	}
+
+	return result
+}
+
+// Count 获取会话总数
+func (m *Manager) Count() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.sessions)
+}
+
+// Get 获取会话详情
+func (m *Manager) Get(sessionID string) (*SessionDetail, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	s.messagesMu.RLock()
+	defer s.messagesMu.RUnlock()
+
+	messages := make([]*SessionMessage, len(s.Messages))
+	for i, msg := range s.Messages {
+		messages[i] = &SessionMessage{
+			ID:        msg.ID,
+			Role:      msg.Role,
+			Content:   msg.Content,
+			Media:     msg.Media,
+			CreatedAt: msg.Timestamp,
+		}
+	}
+
+	return &SessionDetail{
+		ID:           s.Key,
+		Title:        generateSessionTitle(s),
+		AgentID:      "default",
+		Messages:     messages,
+		MessageCount: len(s.Messages),
+		CreatedAt:    s.CreatedAt,
+		UpdatedAt:    s.UpdatedAt,
+	}, nil
+}
+
+// Delete 删除会话
+func (m *Manager) Delete(sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	s, ok := m.sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	// 清除存储
+	if m.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		m.store.Clear(ctx, sessionID)
+	}
+
+	// 清空会话消息
+	s.messagesMu.Lock()
+	s.Messages = nil
+	s.messagesMu.Unlock()
+
+	delete(m.sessions, sessionID)
+	logger.Info("Session deleted", "sessionId", sessionID)
+	return nil
+}
+
+// ClearHistory 清空会话历史
+func (m *Manager) ClearHistory(sessionID string) error {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	s.Clear()
+
+	// 清除存储
+	if m.store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		m.store.Clear(ctx, sessionID)
+	}
+
+	logger.Info("Session history cleared", "sessionId", sessionID)
+	return nil
+}
+
+// generateSessionTitle 生成会话标题
+func generateSessionTitle(s *Session) string {
+	if len(s.Messages) == 0 {
+		return "New Conversation"
+	}
+
+	// 使用第一条用户消息作为标题
+	for _, msg := range s.Messages {
+		if msg.Role == "user" {
+			title := msg.Content
+			if len(title) > 50 {
+				return title[:47] + "..."
+			}
+			return title
+		}
+	}
+
+	return "Conversation"
 }

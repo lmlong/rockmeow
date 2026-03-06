@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/lingguard/internal/agent"
+	"github.com/lingguard/internal/api"
+	"github.com/lingguard/internal/api/handlers"
 	"github.com/lingguard/internal/channels"
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/internal/cron"
@@ -147,7 +149,7 @@ func runGateway() error {
 	}
 
 	// 启动 Web UI 和任务看板服务
-	var webUIServer *taskboard.Server
+	var apiServer *api.Server
 	var taskboardService *taskboard.Service
 	if cfg.WebUI != nil && cfg.WebUI.Enabled {
 		// 初始化任务看板（只要配置了 taskboard 就启用）
@@ -196,27 +198,19 @@ func runGateway() error {
 			}
 		}
 
-		// 启动 Web UI 服务器
-		host := cfg.WebUI.Host
-		if host == "" {
-			host = "127.0.0.1"
+		// 创建统一 Gin 服务器
+		serverOpts := []api.ServerOption{
+			api.WithTaskboardService(taskboardService),
+			api.WithTraceService(traceService),
+			api.WithSessionManager(ag.GetSessionManager()),
 		}
-		port := cfg.WebUI.Port
-		if port == 0 {
-			port = 8080
-		}
-
-		// 如果启用了追踪服务，使用带追踪的服务器
-		if traceService != nil {
-			webUIServer = taskboard.NewServerWithTraceAndConfig(host, port, taskboardService, traceService, cfg.WebUI.CORS)
-		} else {
-			webUIServer = taskboard.NewServerWithConfig(host, port, taskboardService, cfg.WebUI.CORS)
-		}
-
-		// 设置 cron 删除器，用于删除看板任务时同时删除 cron 任务
 		if cronService != nil {
-			webUIServer.SetCronDeleter(cronService)
+			serverOpts = append(serverOpts, api.WithCronDeleter(cronService))
 		}
+		// Agent 必须在 SessionManager 之后设置
+		serverOpts = append(serverOpts, api.WithAgent(ag))
+
+		apiServer = api.NewServer(cfg, serverOpts...)
 	}
 
 	// 启动心跳服务
@@ -270,23 +264,24 @@ func runGateway() error {
 	}
 
 	// 如果启用了 WebChat，设置 WebSocket 处理器和 API 处理器
-	if webChatChannel != nil && webUIServer != nil {
-		webUIServer.SetWebSocketHandler(webChatChannel)
+	if webChatChannel != nil && apiServer != nil {
+		apiServer.SetWebSocketHandler(webChatChannel)
 		logger.Info("WebChat WebSocket handler registered")
 
 		// 初始化 WebChat API 处理器（从 LLM 会话文件读取）
 		webchatMemoryDir := utils.ExpandHome("~/.lingguard/memory/sessions")
-		webchatHandler := webchat.NewHTTPHandler(webchatMemoryDir)
-		webUIServer.SetWebChatAPIHandler(webchatHandler)
+		webchatHTTPHandler := webchat.NewHTTPHandler(webchatMemoryDir)
+		webchatHandler := handlers.NewWebChatHandler(webchatHTTPHandler)
+		apiServer.SetWebChatAPIHandler(webchatHandler)
 		logger.Info("WebChat API handler registered", "dir", webchatMemoryDir)
 	}
 
-	// 启动 Web UI 服务器（在设置好 WebSocket handler 之后）
-	if webUIServer != nil {
-		if err := webUIServer.Start(); err != nil {
-			return fmt.Errorf("start web ui server: %w", err)
+	// 启动 API 服务器（在设置好 WebSocket handler 之后）
+	if apiServer != nil {
+		if err := apiServer.Start(); err != nil {
+			return fmt.Errorf("start api server: %w", err)
 		}
-		logger.Info("Web UI server started", "addr", webUIServer.Address())
+		logger.Info("API server started", "addr", apiServer.Address())
 	}
 
 	// 启动
@@ -324,8 +319,8 @@ func runGateway() error {
 		if heartbeatService != nil {
 			heartbeatService.Stop()
 		}
-		if webUIServer != nil {
-			webUIServer.Stop()
+		if apiServer != nil {
+			apiServer.Stop(shutdownCtx)
 		}
 		if err := mgr.StopAll(); err != nil {
 			logger.Warn("Error stopping channels", "error", err)

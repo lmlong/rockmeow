@@ -40,15 +40,15 @@ func NewHTTPHandler(memoryDir string) *HTTPHandler {
 	return &HTTPHandler{memoryDir: memoryDir}
 }
 
-// RegisterRoutes 注册路由
+// RegisterRoutes 注册路由 (http.ServeMux)
 func (h *HTTPHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/webchat/sessions", h.handleSessions)
-	mux.HandleFunc("/api/webchat/session", h.handleSession)
+	mux.HandleFunc("/api/webchat/sessions", h.HandleSessions)
+	mux.HandleFunc("/api/webchat/session", h.HandleSession)
 	logger.Info("WebChatAPI routes registered")
 }
 
-// handleSessions 处理会话列表
-func (h *HTTPHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
+// HandleSessions 处理会话列表
+func (h *HTTPHandler) HandleSessions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		h.getSessions(w, r)
@@ -61,8 +61,8 @@ func (h *HTTPHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleSession 处理单个会话
-func (h *HTTPHandler) handleSession(w http.ResponseWriter, r *http.Request) {
+// HandleSession 处理单个会话
+func (h *HTTPHandler) HandleSession(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		h.getSession(w, r)
