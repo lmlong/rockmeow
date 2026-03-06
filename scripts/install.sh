@@ -134,6 +134,14 @@ else
     echo "  ! 配置文件已存在，跳过"
 fi
 
+# 3.1 安装 HEARTBEAT.md（仅不存在时）
+if [ ! -f "${CONFIG_DIR}/workspace/HEARTBEAT.md" ]; then
+    if [ -f "configs/HEARTBEAT.md" ]; then
+        cp configs/HEARTBEAT.md "${CONFIG_DIR}/workspace/HEARTBEAT.md"
+        echo "  ✓ 已创建 ${CONFIG_DIR}/workspace/HEARTBEAT.md"
+    fi
+fi
+
 # 4. 更新技能目录
 echo "[4/5] 安装技能目录..."
 if [ -d "skills" ]; then
