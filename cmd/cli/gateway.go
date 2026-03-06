@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -277,11 +278,14 @@ func runGateway() error {
 	}
 
 	// 启动 API 服务器（在设置好 WebSocket handler 之后）
+	// 注意：必须在 goroutine 中启动，否则会阻塞后续的渠道启动
 	if apiServer != nil {
-		if err := apiServer.Start(); err != nil {
-			return fmt.Errorf("start api server: %w", err)
-		}
-		logger.Info("API server started", "addr", apiServer.Address())
+		go func() {
+			if err := apiServer.Start(); err != nil && err != http.ErrServerClosed {
+				logger.Error("API server error", "error", err)
+			}
+		}()
+		logger.Info("API server starting", "addr", apiServer.Address())
 	}
 
 	// 启动
