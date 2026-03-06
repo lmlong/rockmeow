@@ -46,7 +46,7 @@
       "autoCapture": true,
       "captureMaxChars": 500,
       "vector": {
-        "enabled": true,
+        "enabled": false,
         "embedding": {
           "provider": "qwen",
           "model": "text-embedding-v4",
@@ -58,7 +58,7 @@
           "bm25Weight": 0.3,
           "defaultTopK": 10,
           "rerank": {
-            "enabled": true,
+            "enabled": false,
             "provider": "qwen",
             "model": "qwen3-rerank",
             "apiBase": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
@@ -92,7 +92,7 @@
       "timeout": 1200
     },
     "aigc": {
-      "enabled": true,
+      "enabled": false,
       "provider": "qwen",
       "apiBase": "https://dashscope.aliyuncs.com/api/v1",
       "textToImage": "wan2.6-t2i",
@@ -102,14 +102,14 @@
       "imageToVideoDuration": 15
     },
     "tts": {
-      "enabled": true,
+      "enabled": false,
       "provider": "qwen",
       "apiBase": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
       "model": "qwen3-tts-flash",
       "voice": "Cherry"
     },
     "speech": {
-      "enabled": true,
+      "enabled": false,
       "provider": "qwen",
       "apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "model": "qwen3-asr-flash",
