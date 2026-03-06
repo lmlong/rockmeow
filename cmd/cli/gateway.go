@@ -273,16 +273,11 @@ func runGateway() error {
 		webUIServer.SetWebSocketHandler(webChatChannel)
 		logger.Info("WebChat WebSocket handler registered")
 
-		// 初始化 WebChat 存储
-		webchatStorePath := utils.ExpandHome("~/.lingguard/webchat/sessions.json")
-		webchatStore, err := webchat.NewSQLiteStore(webchatStorePath)
-		if err != nil {
-			logger.Warn("Failed to init webchat store", "error", err)
-		} else {
-			webchatHandler := webchat.NewHTTPHandler(webchatStore)
-			webUIServer.SetWebChatAPIHandler(webchatHandler)
-			logger.Info("WebChat API handler registered", "store", webchatStorePath)
-		}
+		// 初始化 WebChat API 处理器（从 LLM 会话文件读取）
+		webchatMemoryDir := utils.ExpandHome("~/.lingguard/memory/sessions")
+		webchatHandler := webchat.NewHTTPHandler(webchatMemoryDir)
+		webUIServer.SetWebChatAPIHandler(webchatHandler)
+		logger.Info("WebChat API handler registered", "dir", webchatMemoryDir)
 	}
 
 	// 启动 Web UI 服务器（在设置好 WebSocket handler 之后）
@@ -371,17 +366,17 @@ func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace strin
 		logger.Info("QQ channel registered")
 	}
 
-	// WebChat 渠道
-	if cfg.Channels.WebChat != nil && cfg.Channels.WebChat.Enabled {
-		webChatChannel = channels.NewWebChatChannel(cfg.Channels.WebChat, handler)
+	// WebChat 渠道（随 WebUI 自动启用，无需额外配置）
+	if cfg.WebUI != nil && cfg.WebUI.Enabled {
+		webChatChannel = channels.NewWebChatChannel(&config.WebChatConfig{}, handler)
 		mgr.RegisterChannel(webChatChannel)
-		logger.Info("WebChat channel registered")
+		logger.Info("WebChat channel registered (auto-enabled with WebUI)")
 	}
 
 	// 检查是否有渠道
 	if (cfg.Channels.Feishu == nil || !cfg.Channels.Feishu.Enabled) &&
 		(cfg.Channels.QQ == nil || !cfg.Channels.QQ.Enabled) &&
-		(cfg.Channels.WebChat == nil || !cfg.Channels.WebChat.Enabled) {
+		(cfg.WebUI == nil || cfg.WebUI.WebChat == nil) {
 		return nil, fmt.Errorf("no channels enabled, please configure at least one channel")
 	}
 

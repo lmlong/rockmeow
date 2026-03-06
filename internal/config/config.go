@@ -107,16 +107,8 @@ type VectorDbConfig struct {
 
 // ChannelsConfig 渠道配置
 type ChannelsConfig struct {
-	Feishu  *FeishuConfig  `json:"feishu,omitempty"`
-	QQ      *QQConfig      `json:"qq,omitempty"`
-	WebChat *WebChatConfig `json:"webchat,omitempty"` // Web 聊天渠道
-}
-
-// WebChatConfig Web 聊天渠道配置
-type WebChatConfig struct {
-	Enabled bool `json:"enabled"` // 是否启用
-	// 注：WebChat 复用 WebUI 服务器，不需要单独的端口配置
-	// WebSocket 端点固定为 /ws/chat
+	Feishu *FeishuConfig `json:"feishu,omitempty"`
+	QQ     *QQConfig     `json:"qq,omitempty"`
 }
 
 // FeishuConfig 飞书配置
@@ -288,6 +280,12 @@ type WebUIConfig struct {
 	TaskBoard *TaskBoardConfig `json:"taskboard,omitempty"` // 任务看板配置
 	Trace     *TraceConfig     `json:"trace,omitempty"`     // LLM 追踪配置
 	CORS      *CORSConfig      `json:"cors,omitempty"`      // CORS 配置
+	WebChat   *WebChatConfig   `json:"webchat,omitempty"`   // WebChat 配置
+}
+
+// WebChatConfig Web 聊天配置（只要配置存在就默认启用，无需 enabled 字段）
+// 存储路径固定为 ~/.lingguard/webui/webchat/sessions.json
+type WebChatConfig struct {
 }
 
 // TaskBoardConfig 任务看板功能配置

@@ -46,6 +46,7 @@ type WebChatConnection struct {
 	Conn      *websocket.Conn
 	Send      chan []byte
 	Close     chan struct{}
+	mu        sync.RWMutex // 保护 SessionID 和 UserID 的并发访问
 }
 
 // BroadcastMessage 广播消息
@@ -173,6 +174,11 @@ func (c *WebChatChannel) Send(ctx context.Context, sessionID string, content str
 
 // HandleWebSocket 处理 WebSocket 连接
 func (c *WebChatChannel) HandleWebSocket(conn *websocket.Conn, sessionID string) {
+	// 确保 session ID 有 webchat- 前缀，用于会话隔离
+	if !strings.HasPrefix(sessionID, "webchat-") {
+		sessionID = "webchat-" + sessionID
+	}
+
 	// 创建连接对象
 	wc := &WebChatConnection{
 		ID:        sessionID,
@@ -192,6 +198,16 @@ func (c *WebChatChannel) HandleWebSocket(conn *websocket.Conn, sessionID string)
 
 	// 启动写协程
 	go c.writePump(wc)
+
+	// 发送连接确认消息（包含实际的 session ID）
+	connected := WSResponse{
+		Type:      "connected",
+		SessionID: sessionID,
+		Done:      true,
+	}
+	if data, err := json.Marshal(connected); err == nil {
+		wc.Send <- data
+	}
 
 	// 发送欢迎消息
 	welcome := WSResponse{
@@ -328,13 +344,22 @@ func (c *WebChatChannel) switchSession(conn *WebChatConnection, newSessionID str
 		return
 	}
 
+	// 确保 session ID 有 webchat- 前缀
+	if !strings.HasPrefix(newSessionID, "webchat-") {
+		newSessionID = "webchat-" + newSessionID
+	}
+
+	conn.mu.Lock()
 	oldSessionID := conn.SessionID
+	conn.mu.Unlock()
 
 	// 更新连接映射
 	c.connMu.Lock()
 	delete(c.connections, oldSessionID)
+	conn.mu.Lock()
 	conn.SessionID = newSessionID
 	conn.UserID = newSessionID
+	conn.mu.Unlock()
 	c.connections[newSessionID] = conn
 	c.connMu.Unlock()
 
@@ -405,8 +430,21 @@ func (c *WebChatChannel) handleChatMessage(conn *WebChatConnection, content stri
 // handleStreamingResponse 处理流式响应
 func (c *WebChatChannel) handleStreamingResponse(ctx context.Context, conn *WebChatConnection, msg *Message) {
 	var fullResponse strings.Builder
+	// 保存原始 SessionID，防止会话切换后发送到错误的会话
+	originalSessionID := msg.SessionID
 
 	callback := func(event stream.StreamEvent) {
+		// 检查当前连接的 SessionID 是否已改变（用户切换了会话）
+		conn.mu.RLock()
+		currentSessionID := conn.SessionID
+		conn.mu.RUnlock()
+
+		if currentSessionID != originalSessionID {
+			// 会话已切换，丢弃旧会话的响应
+			logger.Debug("Session switched, dropping response", "original", originalSessionID, "current", currentSessionID)
+			return
+		}
+
 		switch event.Type {
 		case stream.EventText:
 			// 流式发送文本块
@@ -414,23 +452,24 @@ func (c *WebChatChannel) handleStreamingResponse(ctx context.Context, conn *WebC
 			resp := WSResponse{
 				Type:      "stream",
 				Content:   event.Content,
-				SessionID: conn.SessionID,
+				SessionID: originalSessionID,
 				Done:      false,
 			}
 			if data, err := json.Marshal(resp); err == nil {
 				select {
 				case conn.Send <- data:
 				default:
-					logger.Warn("Send buffer full, dropping stream chunk", "sessionId", conn.SessionID)
+					logger.Warn("Send buffer full, dropping stream chunk", "sessionId", originalSessionID)
 				}
 			}
 
 		case stream.EventDone:
 			// 发送完成标记
+			responseContent := fullResponse.String()
 			resp := WSResponse{
 				Type:      "stream_end",
-				Content:   fullResponse.String(),
-				SessionID: conn.SessionID,
+				Content:   responseContent,
+				SessionID: originalSessionID,
 				Done:      true,
 			}
 			if data, err := json.Marshal(resp); err == nil {
@@ -446,7 +485,7 @@ func (c *WebChatChannel) handleStreamingResponse(ctx context.Context, conn *WebC
 			resp := WSResponse{
 				Type:      "error",
 				Content:   errMsg,
-				SessionID: conn.SessionID,
+				SessionID: originalSessionID,
 				Done:      true,
 			}
 			if data, err := json.Marshal(resp); err == nil {
@@ -457,11 +496,11 @@ func (c *WebChatChannel) handleStreamingResponse(ctx context.Context, conn *WebC
 
 	err := c.streamingHandler.HandleMessageStream(ctx, msg, callback)
 	if err != nil {
-		logger.Error("Failed to handle streaming message", "error", err, "sessionId", conn.SessionID)
+		logger.Error("Failed to handle streaming message", "error", err, "sessionId", originalSessionID)
 		resp := WSResponse{
 			Type:      "error",
 			Content:   fmt.Sprintf("处理消息失败: %s", err.Error()),
-			SessionID: conn.SessionID,
+			SessionID: originalSessionID,
 			Done:      true,
 		}
 		if data, err := json.Marshal(resp); err == nil {

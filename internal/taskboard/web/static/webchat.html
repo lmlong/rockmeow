@@ -444,6 +444,7 @@
                 const isTyping = ref(false);
                 const messagesContainer = ref(null);
                 let ws = null;
+                let shouldReconnect = true; // 是否应该自动重连
 
                 // 当前会话
                 const currentSession = computed(() => {
@@ -462,8 +463,10 @@
                                 currentSessionId.value = sessions.value[0].id;
                             }
                         }
+                        return sessions.value;
                     } catch (e) {
                         console.error('Failed to load sessions:', e);
+                        return [];
                     }
                 };
 
@@ -484,19 +487,21 @@
                 // 连接 WebSocket
                 const connect = () => {
                     if (ws) {
+                        shouldReconnect = false; // 主动关闭，不重连
                         ws.close();
                     }
 
+                    shouldReconnect = true; // 设置自动重连标志
                     connecting.value = true;
                     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    const wsUrl = `${protocol}//${window.location.host}/ws/chat?session=${currentSessionId.value || 'default'}`;
+                    const wsUrl = `${protocol}//${window.location.host}/ws/chat?session=${currentSessionId.value || ''}`;
 
                     ws = new WebSocket(wsUrl);
 
                     ws.onopen = () => {
                         connected.value = true;
                         connecting.value = false;
-                        console.log('WebSocket connected');
+                        console.log('WebSocket connected, sessionId:', currentSessionId.value);
                     };
 
                     ws.onclose = () => {
@@ -505,10 +510,10 @@
                         isTyping.value = false;
                         console.log('WebSocket closed');
 
-                        // 自动重连
-                        if (connected.value !== false) {
+                        // 自动重连（仅在异常断开时）
+                        if (shouldReconnect) {
                             setTimeout(() => {
-                                if (!connected.value) {
+                                if (!connected.value && shouldReconnect && currentSessionId.value) {
                                     connect();
                                 }
                             }, 3000);
@@ -528,6 +533,20 @@
 
                 // 处理消息
                 const handleMessage = (data) => {
+                    // 处理连接确认消息，同步 session ID
+                    if (data.type === 'connected') {
+                        const serverSessionId = data.sessionId;
+                        if (serverSessionId && serverSessionId !== currentSessionId.value) {
+                            console.log('Session ID synced:', serverSessionId);
+                            // 更新当前会话的 ID
+                            if (currentSession.value) {
+                                currentSession.value.id = serverSessionId;
+                            }
+                            currentSessionId.value = serverSessionId;
+                        }
+                        return;
+                    }
+
                     if (!currentSession.value) return;
 
                     if (data.type === 'stream') {
@@ -625,9 +644,19 @@
                     });
                 };
 
+                // 生成 UUID
+                const generateUUID = () => {
+                    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                        const r = Math.random() * 16 | 0;
+                        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                        return v.toString(16);
+                    });
+                };
+
                 // 新建会话
                 const newSession = () => {
-                    const id = 'session-' + Date.now();
+                    // 使用 webchat- 前缀的 UUID 格式
+                    const id = 'webchat-' + generateUUID();
                     const session = {
                         id,
                         title: '',
@@ -640,6 +669,9 @@
                     currentSessionId.value = id;
                     saveSessions();
 
+                    // 断开并重连 WebSocket，使用新的 session ID
+                    connect();
+
                     // 滚动到顶部显示新会话
                     nextTick(() => {
                         const list = document.querySelector('.session-list');
@@ -651,16 +683,10 @@
                 const selectSession = (id) => {
                     if (currentSessionId.value === id) return;
                     currentSessionId.value = id;
-                    saveSessions();
                     scrollToBottom();
 
-                    // 通知后端切换会话
-                    if (ws && connected.value) {
-                        ws.send(JSON.stringify({
-                            type: 'switch',
-                            content: id
-                        }));
-                    }
+                    // 断开并重连 WebSocket，使用新的 session ID
+                    connect();
                 };
 
                 // 删除会话
@@ -705,16 +731,17 @@
                 };
 
                 // 生命周期
-                onMounted(() => {
-                    loadSessions();
+                onMounted(async () => {
+                    // 先加载会话列表
+                    await loadSessions();
 
                     // 如果没有会话，创建一个
                     if (sessions.value.length === 0) {
                         newSession();
+                    } else {
+                        // 有会话，连接 WebSocket
+                        connect();
                     }
-
-                    // 自动连接
-                    connect();
                 });
 
                 return {

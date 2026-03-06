@@ -167,8 +167,11 @@ func (s *SessionStore) loadSession(sessionID string) (*SessionFile, error) {
 
 // saveSession 保存会话到文件
 func (s *SessionStore) saveSession(session *SessionFile) error {
+	// 获取文件路径（会自动创建渠道子目录）
+	filePath := s.getSessionFilePath(session.SessionID)
+	sessionsDir := filepath.Dir(filePath)
+
 	// 确保目录存在
-	sessionsDir := filepath.Join(s.memoryDir, "sessions")
 	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
 		return fmt.Errorf("create sessions directory: %w", err)
 	}
@@ -180,7 +183,6 @@ func (s *SessionStore) saveSession(session *SessionFile) error {
 	}
 
 	// 写入文件
-	filePath := s.getSessionFilePath(session.SessionID)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("write session file: %w", err)
 	}
@@ -189,10 +191,34 @@ func (s *SessionStore) saveSession(session *SessionFile) error {
 }
 
 // getSessionFilePath 获取会话文件路径
+// 根据 sessionID 前缀自动分类到渠道子目录
 func (s *SessionStore) getSessionFilePath(sessionID string) string {
 	// 使用安全的文件名（替换可能的问题字符）
 	safeID := sanitizeFilename(sessionID)
-	return filepath.Join(s.memoryDir, "sessions", safeID+".json")
+
+	// 根据 sessionID 前缀确定渠道子目录
+	channel := "common" // 默认子目录
+	switch {
+	case startsWithPrefix(sessionID, "feishu-"):
+		channel = "feishu"
+	case startsWithPrefix(sessionID, "webchat-"):
+		channel = "webchat"
+	case startsWithPrefix(sessionID, "qq-"):
+		channel = "qq"
+	case startsWithPrefix(sessionID, "session-"):
+		// webchat 旧格式兼容
+		channel = "webchat"
+	}
+
+	return filepath.Join(s.memoryDir, "sessions", channel, safeID+".json")
+}
+
+// startsWithPrefix 检查字符串是否以指定前缀开头（不区分大小写）
+func startsWithPrefix(s, prefix string) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	return s[:len(prefix)] == prefix
 }
 
 // sanitizeFilename 清理文件名，移除不安全字符
@@ -224,21 +250,29 @@ func generateMessageID() string {
 // ListSessions 列出所有会话
 func (s *SessionStore) ListSessions() ([]string, error) {
 	sessionsDir := filepath.Join(s.memoryDir, "sessions")
-	entries, err := os.ReadDir(sessionsDir)
+
+	// 扫描所有子目录
+	var sessions []string
+	err := filepath.Walk(sessionsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if !info.IsDir() && filepath.Ext(path) == ".json" {
+			// 去掉 .json 后缀
+			filename := filepath.Base(path)
+			sessionID := filename[:len(filename)-5]
+			sessions = append(sessions, sessionID)
+		}
+		return nil
+	})
 	if os.IsNotExist(err) {
 		return []string{}, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-
-	var sessions []string
-	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
-			// 去掉 .json 后缀
-			sessionID := entry.Name()[:len(entry.Name())-5]
-			sessions = append(sessions, sessionID)
-		}
 	}
 
 	return sessions, nil
