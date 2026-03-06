@@ -33,3 +33,7 @@ Thumbs.db
 *.tmp
 *.swp
 *~
+
+# Local directories
+.github/
+.claude/
