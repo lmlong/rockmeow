@@ -77,6 +77,7 @@ type Agent struct {
 	traceCollector     trace.Collector        // 追踪采集器，可选
 	sessionLockTimeout time.Duration          // 会话锁超时时间
 	steerMgr           *steerManager          // Steer 模式管理器
+	profileStore       *memory.ProfileStore   // 用户档案存储
 	// 会话级别动态工具管理
 	sessionDynamicTools   map[string]*sessionDynamicToolsInfo
 	sessionDynamicToolsMu sync.RWMutex
@@ -181,6 +182,7 @@ func NewAgentWithMultimodalAndConfig(cfg *config.AgentsConfig, provider provider
 		hybridStore:         hybridStore,
 		memoryBuilder:       memBuilder,
 		sessionDynamicTools: make(map[string]*sessionDynamicToolsInfo),
+		profileStore:        memory.NewProfileStore(""),
 	}
 
 	// 初始化子代理管理器
@@ -279,6 +281,11 @@ func (a *Agent) GetMemoryStore() *memory.FileStore {
 // GetHybridStore 获取混合存储（如果启用）
 func (a *Agent) GetHybridStore() *memory.HybridStore {
 	return a.hybridStore
+}
+
+// GetProfileStore 获取用户档案存储
+func (a *Agent) GetProfileStore() *memory.ProfileStore {
+	return a.profileStore
 }
 
 // IsVectorSearchEnabled 检查是否启用向量检索
@@ -673,6 +680,12 @@ func (a *Agent) ProcessMessageStreamWithMedia(ctx context.Context, sessionID, us
 	if tr != nil && a.traceCollector != nil {
 		a.traceCollector.EndTrace(tr, "", runErr)
 		tr = nil // 防止 defer 再次结束
+	}
+
+	// 如果执行失败（如 LLM 请求超时或报错），通过 callback 通知 channel，
+	// 确保 gateway 收到响应，表明通讯通道正常工作。
+	if runErr != nil {
+		callback(stream.NewErrorEvent(runErr))
 	}
 
 	return runErr

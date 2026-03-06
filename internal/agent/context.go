@@ -43,6 +43,15 @@ func (a *Agent) buildContextWithMedia(sessionID string, hasMedia bool) ([]llm.Me
 		}
 	}
 
+	// 注入用户 Soul 定义到系统提示
+	if a.profileStore != nil {
+		soulDefinition := a.profileStore.GetSoulDefinition(sessionID)
+		if soulDefinition != "" {
+			soulContext := fmt.Sprintf("\n\n## 助手人格设定\n%s", soulDefinition)
+			systemPrompt = systemPrompt + soulContext
+		}
+	}
+
 	// 添加当前时间信息
 	currentTime := time.Now().Format("2006-01-02 15:04:05 Monday")
 	timeInfo := fmt.Sprintf("当前时间: %s", currentTime)

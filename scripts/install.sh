@@ -33,8 +33,28 @@ if [ -f "${PREFIX}/bin/${BIN_NAME}" ]; then
     IS_UPDATE="true"
 fi
 
+# 检测是否为快速更新模式（仅更新二进制文件）
+QUICK_UPDATE="false"
+if [ "$IS_UPDATE" = "true" ] && [ "$PLATFORM" = "linux" ]; then
+    if [ "$EUID" -eq 0 ]; then
+        if [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
+            QUICK_UPDATE="true"
+        fi
+    else
+        if [ -f "${HOME}/.config/systemd/user/${SERVICE_NAME}.service" ]; then
+            QUICK_UPDATE="true"
+        fi
+    fi
+fi
+
 # 显示标题
-if [ "$IS_UPDATE" = "true" ]; then
+if [ "$QUICK_UPDATE" = "true" ]; then
+    echo "=== LingGuard 快速更新 ==="
+    echo "平台: $PLATFORM"
+    echo "PREFIX: $PREFIX"
+    echo "模式: 快速更新（仅更新二进制文件）"
+    echo ""
+elif [ "$IS_UPDATE" = "true" ]; then
     echo "=== LingGuard 更新 ==="
 else
     echo "=== LingGuard 安装 ==="
@@ -42,7 +62,7 @@ fi
 echo "平台: $PLATFORM"
 echo "PREFIX: $PREFIX"
 echo "CONFIG_DIR: $CONFIG_DIR"
-echo "模式: $([ "$IS_UPDATE" = "true" ] && echo "更新" || echo "新安装")"
+echo "模式: $([ "$QUICK_UPDATE" = "true" ] && echo "快速更新" || ([ "$IS_UPDATE" = "true" ] && echo "更新" || echo "新安装"))"
 echo ""
 
 # 1. 安装二进制文件
@@ -90,6 +110,26 @@ if [ "$PLATFORM" = "macos" ]; then
     xattr -cr "${PREFIX}/bin/${BIN_NAME}" 2>/dev/null || true
 fi
 echo "  ✓ 已安装到 ${PREFIX}/bin/${BIN_NAME}"
+
+# 快速更新模式：仅更新二进制文件后直接退出
+if [ "$QUICK_UPDATE" = "true" ]; then
+    echo ""
+    echo "[2/2] 重启服务..."
+    if [ "$EUID" -eq 0 ]; then
+        systemctl daemon-reload
+        systemctl restart ${SERVICE_NAME}
+        systemctl status ${SERVICE_NAME} --no-pager || true
+    else
+        systemctl --user daemon-reload
+        systemctl --user restart ${SERVICE_NAME}
+        systemctl --user status ${SERVICE_NAME} --no-pager || true
+    fi
+    echo ""
+    echo "=== 快速更新完成 ==="
+    echo ""
+    echo "二进制文件: ${PREFIX}/bin/${BIN_NAME}"
+    exit 0
+fi
 
 # 2. 创建配置目录
 echo "[2/5] 创建配置目录..."

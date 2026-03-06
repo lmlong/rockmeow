@@ -30,6 +30,7 @@ import (
 
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/pkg/logger"
+	"github.com/lingguard/pkg/memory"
 	"github.com/lingguard/pkg/speech"
 	"github.com/lingguard/pkg/stream"
 )
@@ -56,6 +57,8 @@ type FeishuChannel struct {
 	mu               sync.RWMutex
 	running          bool
 	allowMap         map[string]bool
+	profileStore     *memory.ProfileStore // 用户档案存储
+	soulConfig       *config.SoulConfig   // Soul 配置
 
 	// Message deduplication - 使用 map + RWMutex 替代 sync.Map，避免并发问题
 	processedMsgs map[string]time.Time
@@ -64,21 +67,28 @@ type FeishuChannel struct {
 	// Context for graceful shutdown
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// Soul 定义状态管理（用于追踪等待用户定义 Soul 的状态）
+	soulPendingUsers map[string]time.Time // 等待 Soul 定义的用户及时间
+	soulPendingMu    sync.RWMutex
 }
 
 // NewFeishuChannel 创建飞书渠道
-func NewFeishuChannel(cfg *config.FeishuConfig, speechCfg *config.SpeechConfig, providers map[string]config.ProviderConfig, workspace string, handler MessageHandler) *FeishuChannel {
+func NewFeishuChannel(cfg *config.FeishuConfig, speechCfg *config.SpeechConfig, providers map[string]config.ProviderConfig, workspace string, handler MessageHandler, profileStore *memory.ProfileStore, soulConfig *config.SoulConfig) *FeishuChannel {
 	allowMap := make(map[string]bool)
 	for _, id := range cfg.AllowFrom {
 		allowMap[id] = true
 	}
 	fc := &FeishuChannel{
-		cfg:           cfg,
-		speechCfg:     speechCfg,
-		workspace:     workspace,
-		handler:       handler,
-		allowMap:      allowMap,
-		processedMsgs: make(map[string]time.Time),
+		cfg:              cfg,
+		speechCfg:        speechCfg,
+		workspace:        workspace,
+		handler:          handler,
+		allowMap:         allowMap,
+		processedMsgs:    make(map[string]time.Time),
+		profileStore:     profileStore,
+		soulConfig:       soulConfig,
+		soulPendingUsers: make(map[string]time.Time),
 	}
 	// 检查是否实现了流式处理器接口
 	if sh, ok := handler.(StreamingMessageHandler); ok {
@@ -416,6 +426,67 @@ func (f *FeishuChannel) handleMessage(ctx context.Context, event *larkim.P2Messa
 	}
 
 	logger.Debug("Received message", "sender", senderID, "chatType", chatType, "content", truncateLog(channelMsg.Content, 100))
+
+	// Soul 引导逻辑（仅私聊）
+	if f.soulConfig != nil && f.soulConfig.Enabled && chatType == "p2p" && f.profileStore != nil {
+		// 检查用户是否正在等待定义 Soul
+		if f.isPendingSoulDefinition(senderID) {
+			// 用户回复了 Soul 定义
+			userInput := strings.TrimSpace(channelMsg.Content)
+			if strings.ToLower(userInput) == "跳过" || strings.ToLower(userInput) == "skip" {
+				// 用户跳过，使用默认 Soul
+				defaultSoul := f.soulConfig.DefaultSoul
+				if defaultSoul == "" {
+					defaultSoul = "我是一个友好、专业的 AI 助手，致力于帮助用户解决问题。"
+				}
+				f.profileStore.MarkSoulDefined(senderID, defaultSoul)
+				f.clearPendingSoulDefinition(senderID)
+				logger.Info("User skipped Soul definition, using default", "userId", senderID)
+				// 发送确认消息
+				f.sendReply(ctx, replyTo, "好的，我将使用默认设置。有什么我可以帮助你的吗？")
+				return nil
+			}
+
+			// 保存用户定义的 Soul
+			f.profileStore.MarkSoulDefined(senderID, userInput)
+			f.clearPendingSoulDefinition(senderID)
+			logger.Info("Soul definition saved", "userId", senderID, "definition", truncateLog(userInput, 50))
+			// 发送确认消息
+			f.sendReply(ctx, replyTo, fmt.Sprintf("感谢你的设定！我已经记住了：%s\n\n现在让我开始为你服务吧，有什么我可以帮助你的？", userInput))
+			return nil
+		}
+
+		// 检查是否是首次交互或未定义 Soul
+		profile, _ := f.profileStore.GetProfile(senderID)
+		if profile == nil {
+			// 首次交互，创建用户档案并发送引导消息
+			f.profileStore.CreateProfile(senderID, "feishu")
+			f.sendSoulGuideMessage(ctx, replyTo, senderID)
+			return nil
+		}
+
+		if !profile.SoulDefined {
+			// 用户存在但未定义 Soul，发送引导消息
+			f.sendSoulGuideMessage(ctx, replyTo, senderID)
+			return nil
+		}
+
+		// 检查是否是"你是谁?"问题 - 触发 Soul 重新定义
+		if isSoulQuestion(channelMsg.Content) {
+			currentSoul := profile.SoulDefinition
+			var response string
+			if currentSoul != "" {
+				response = fmt.Sprintf("根据你之前的设定，我是：\n\n%s\n\n如果你想修改或补充我的人格设定，请直接告诉我你希望我成为什么样的助手。", currentSoul)
+			} else {
+				response = "我还没有特别的人格设定。\n\n你想让我成为什么样的助手？请告诉我你的期望。"
+			}
+			// 设置等待状态，让用户可以重新定义 Soul
+			f.setPendingSoulDefinition(senderID)
+			f.sendReply(ctx, replyTo, response)
+			logger.Info("Soul question detected, waiting for redefinition", "userId", senderID)
+			return nil
+		}
+	}
 
 	// 检查是否支持流式处理
 	if f.streamingHandler != nil {
@@ -1634,3 +1705,78 @@ func (f *FeishuChannel) sendFileMessage(ctx context.Context, receiveID, fileKey 
 
 // Compile-time check for unused code (regexp for markdown table parsing if needed later)
 var _ = regexp.MustCompile(``)
+
+// sendSoulGuideMessage 发送 Soul 引导消息
+func (f *FeishuChannel) sendSoulGuideMessage(ctx context.Context, replyTo, userID string) {
+	guideMsg := f.getSoulGuideMessage()
+	if err := f.sendReply(ctx, replyTo, guideMsg); err != nil {
+		logger.Warn("Failed to send Soul guide message", "error", err)
+		return
+	}
+	// 标记用户正在等待定义 Soul
+	f.setPendingSoulDefinition(userID)
+	logger.Info("Soul guide message sent", "userId", userID)
+}
+
+// getSoulGuideMessage 获取 Soul 引导消息
+func (f *FeishuChannel) getSoulGuideMessage() string {
+	if f.soulConfig != nil && f.soulConfig.GuideMessage != "" {
+		return f.soulConfig.GuideMessage
+	}
+	return `你好！我是你的 AI 助手。
+
+在开始之前，我想了解一下你希望我成为什么样的助手。
+
+你可以告诉我：
+- 我的性格特点（如：温柔、幽默、专业...）
+- 我应该如何称呼你
+- 你希望我的回复风格（简洁/详细、活泼/稳重...）
+- 其他任何你期望的特质
+
+请直接回复你的想法，或者回复"跳过"使用默认设置。`
+}
+
+// setPendingSoulDefinition 设置用户正在等待定义 Soul
+func (f *FeishuChannel) setPendingSoulDefinition(userID string) {
+	f.soulPendingMu.Lock()
+	defer f.soulPendingMu.Unlock()
+	f.soulPendingUsers[userID] = time.Now()
+}
+
+// isPendingSoulDefinition 检查用户是否正在等待定义 Soul
+func (f *FeishuChannel) isPendingSoulDefinition(userID string) bool {
+	f.soulPendingMu.RLock()
+	defer f.soulPendingMu.RUnlock()
+	_, exists := f.soulPendingUsers[userID]
+	return exists
+}
+
+// clearPendingSoulDefinition 清除用户的 Soul 定义等待状态
+func (f *FeishuChannel) clearPendingSoulDefinition(userID string) {
+	f.soulPendingMu.Lock()
+	defer f.soulPendingMu.Unlock()
+	delete(f.soulPendingUsers, userID)
+}
+
+// soulQuestionPatterns "你是谁?"相关问题的匹配模式
+var soulQuestionPatterns = []string{
+	"你是谁",
+	"你叫什么",
+	"你的名字",
+	"介绍一下你自己",
+	"自我介绍",
+	"who are you",
+	"what is your name",
+	"tell me about yourself",
+}
+
+// isSoulQuestion 检测消息是否为"你是谁?"相关问题
+func isSoulQuestion(content string) bool {
+	content = strings.ToLower(content)
+	for _, pattern := range soulQuestionPatterns {
+		if strings.Contains(content, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
+}

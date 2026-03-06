@@ -20,6 +20,7 @@ import (
 	"github.com/lingguard/internal/webchat"
 	"github.com/lingguard/pkg/httpclient"
 	"github.com/lingguard/pkg/logger"
+	"github.com/lingguard/pkg/memory"
 	"github.com/lingguard/pkg/utils"
 	"github.com/spf13/cobra"
 )
@@ -263,7 +264,7 @@ func runGateway() error {
 	workspace = utils.ExpandHome(workspace)
 
 	// 注册渠道
-	webChatChannel, err := registerChannels(cfg, mgr, workspace, handler)
+	webChatChannel, err := registerChannels(cfg, mgr, workspace, handler, ag.GetProfileStore())
 	if err != nil {
 		return err
 	}
@@ -345,7 +346,7 @@ func runGateway() error {
 
 // registerChannels 注册所有渠道
 // 返回 WebChat channel 以便设置 WebSocket 处理器
-func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace string, handler channels.MessageHandler) (*channels.WebChatChannel, error) {
+func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace string, handler channels.MessageHandler, profileStore *memory.ProfileStore) (*channels.WebChatChannel, error) {
 	var webChatChannel *channels.WebChatChannel
 
 	// 飞书渠道
@@ -353,7 +354,7 @@ func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace strin
 		if cfg.Channels.Feishu.AppID == "" || cfg.Channels.Feishu.AppSecret == "" {
 			return nil, fmt.Errorf("feishu channel enabled but appId or appSecret not configured")
 		}
-		mgr.RegisterChannel(channels.NewFeishuChannel(cfg.Channels.Feishu, cfg.Tools.Speech, cfg.Providers, workspace, handler))
+		mgr.RegisterChannel(channels.NewFeishuChannel(cfg.Channels.Feishu, cfg.Tools.Speech, cfg.Providers, workspace, handler, profileStore, cfg.Agents.Soul))
 		logger.Info("Feishu channel registered")
 	}
 

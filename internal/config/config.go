@@ -43,8 +43,16 @@ type AgentsConfig struct {
 	SystemPrompt       string        `json:"systemPrompt"`
 	MemoryConfig       *MemoryConfig `json:"memory,omitempty"`             // 记忆系统配置
 	SessionLockTimeout int           `json:"sessionLockTimeout,omitempty"` // 会话锁超时（分钟），默认 10
+	Soul               *SoulConfig   `json:"soul,omitempty"`               // Soul 人格引导配置
 	// 注：Temperature 和 MaxTokens 从 Provider 配置中获取，避免重复
 	// 注：Skills 目录固定在 ~/.lingguard/skills/
+}
+
+// SoulConfig Soul 人格引导配置
+type SoulConfig struct {
+	Enabled      bool   `json:"enabled"`                // 是否启用 Soul 引导
+	DefaultSoul  string `json:"defaultSoul,omitempty"`  // 默认 Soul 定义
+	GuideMessage string `json:"guideMessage,omitempty"` // 自定义引导消息
 }
 
 // MemoryConfig 记忆系统配置（参考 nanobot）
@@ -369,6 +377,9 @@ func DefaultConfig() *Config {
 				CaptureMaxChars:    500,
 			},
 			SessionLockTimeout: 10, // 10 分钟
+			Soul: &SoulConfig{
+				Enabled: true,
+			},
 		},
 		Channels: ChannelsConfig{},
 		Tools: ToolsConfig{
