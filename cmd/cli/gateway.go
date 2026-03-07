@@ -12,6 +12,7 @@ import (
 	"github.com/lingguard/internal/agent"
 	"github.com/lingguard/internal/api"
 	"github.com/lingguard/internal/api/handlers"
+	"github.com/lingguard/internal/api/task"
 	"github.com/lingguard/internal/channels"
 	"github.com/lingguard/internal/config"
 	"github.com/lingguard/internal/cron"
@@ -199,11 +200,24 @@ func runGateway() error {
 			}
 		}
 
+		// 创建 Task Manager
+		var taskManager *task.Manager
+		if ag != nil {
+			taskManager = task.NewManager(ag)
+			logger.Info("Task manager initialized")
+		}
+
 		// 创建统一 Gin 服务器
 		serverOpts := []api.ServerOption{
 			api.WithTaskboardService(taskboardService),
 			api.WithTraceService(traceService),
 			api.WithSessionManager(ag.GetSessionManager()),
+		}
+
+		// 添加 Task Handler
+		if taskManager != nil {
+			taskHandler := handlers.NewTaskHandler(taskManager)
+			serverOpts = append(serverOpts, api.WithTaskHandler(taskHandler))
 		}
 		if cronService != nil {
 			serverOpts = append(serverOpts, api.WithCronDeleter(cronService))

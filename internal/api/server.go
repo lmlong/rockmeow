@@ -47,6 +47,7 @@ type Server struct {
 	webchatAPIHandler WebChatAPIHandler
 	chatHandler       *handlers.ChatHandler
 	sessionHandler    *handlers.SessionHandler
+	taskHandler       *handlers.TaskHandler
 
 	// WebSocket
 	wsHandler WebSocketHandler
@@ -97,14 +98,25 @@ func WithSessionManager(sessionMgr *session.Manager) ServerOption {
 	}
 }
 
+// WithTaskHandler 设置任务处理器
+func WithTaskHandler(handler *handlers.TaskHandler) ServerOption {
+	return func(s *Server) {
+		s.taskHandler = handler
+	}
+}
+
 // SetWebSocketHandler 设置 WebSocket 处理器
 func (s *Server) SetWebSocketHandler(h WebSocketHandler) {
 	s.wsHandler = h
+	// 动态注册 WebSocket 路由
+	s.router.GET("/ws/chat", handlers.HandleWebSocket(h))
 }
 
 // SetWebChatAPIHandler 设置 WebChat API 处理器
 func (s *Server) SetWebChatAPIHandler(h WebChatAPIHandler) {
 	s.webchatAPIHandler = h
+	// 动态注册 WebChat API 路由
+	h.RegisterRoutes(s.router.Group(""))
 }
 
 // NewServer 创建统一服务器
@@ -189,11 +201,12 @@ func (s *Server) registerRoutes() {
 			s.sessionHandler.RegisterRoutes(v1)
 		}
 
-		// TODO: Phase 3 - Task API
-		// v1.POST("/tasks", s.handleCreateTask)
-		// v1.GET("/tasks/:task_id", s.handleGetTask)
-		// v1.POST("/tasks/:task_id/cancel", s.handleCancelTask)
-		// v1.GET("/tasks/:task_id/events", s.handleTaskEvents)
+		// Task API
+		if s.taskHandler != nil {
+			s.taskHandler.RegisterRoutes(v1)
+		}
+
+		// TODO: Phase 5 - Tool/Agent API
 		// v1.GET("/tools", s.handleListTools)
 		// v1.POST("/tools/:tool_name/execute", s.handleExecuteTool)
 		// v1.GET("/agents", s.handleListAgents)
@@ -208,15 +221,8 @@ func (s *Server) registerRoutes() {
 		s.traceHandler.RegisterRoutes(s.router.Group(""))
 	}
 
-	// ========== WebChat API (/api/webchat/*) ==========
-	if s.webchatAPIHandler != nil {
-		s.webchatAPIHandler.RegisterRoutes(s.router.Group(""))
-	}
-
-	// ========== WebSocket (/ws/chat) ==========
-	if s.wsHandler != nil {
-		s.router.GET("/ws/chat", handlers.HandleWebSocket(s.wsHandler))
-	}
+	// 注意：WebChat API 路由在 SetWebChatAPIHandler 中动态注册
+	// 注意：WebSocket 路由在 SetWebSocketHandler 中动态注册
 
 	// ========== 静态文件 (Web UI) ==========
 	s.registerStaticFiles()
@@ -239,7 +245,27 @@ func (s *Server) registerStaticFiles() {
 		c.FileFromFS("favicon.ico", http.FS(staticFS))
 	})
 
-	// 首页和其他路由（SPA fallback）
+	// 静态 HTML 页面路由
+	serveHTML := func(filename string) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			data, err := fs.ReadFile(staticFS, filename)
+			if err != nil {
+				logger.Error("Failed to read html file", "file", filename, "error", err)
+				c.String(500, "Failed to load %s", filename)
+				return
+			}
+			c.Data(200, "text/html; charset=utf-8", data)
+		}
+	}
+
+	// 首页
+	s.router.GET("/", serveHTML("index.html"))
+	// WebChat 页面
+	s.router.GET("/webchat.html", serveHTML("webchat.html"))
+	// Trace 页面
+	s.router.GET("/trace.html", serveHTML("trace.html"))
+
+	// 其他未匹配路由（SPA fallback）
 	s.router.NoRoute(func(c *gin.Context) {
 		// 如果是 API 路由但未匹配，返回 404
 		path := c.Request.URL.Path
@@ -263,7 +289,13 @@ func (s *Server) registerStaticFiles() {
 		}
 
 		// 其他路由返回首页（SPA）
-		c.FileFromFS("index.html", http.FS(staticFS))
+		data, err := fs.ReadFile(staticFS, "index.html")
+		if err != nil {
+			logger.Error("Failed to read index.html", "error", err)
+			c.String(500, "Failed to load index.html")
+			return
+		}
+		c.Data(200, "text/html; charset=utf-8", data)
 	})
 }
 
