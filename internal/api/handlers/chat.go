@@ -2,12 +2,13 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lingguard/internal/agent"
-	"github.com/lingguard/internal/api/sse"
 	"github.com/lingguard/internal/session"
 	"github.com/lingguard/pkg/logger"
 	"github.com/lingguard/pkg/stream"
@@ -165,83 +166,204 @@ func (h *ChatHandler) handleNonStream(c *gin.Context, sessionID string, req Chat
 	})
 }
 
-// handleStream 处理流式请求
+// OpenAI 兼容的 SSE 数据结构
+
+// OpenAIChunk OpenAI 格式的流式响应块
+type OpenAIChunk struct {
+	ID      string            `json:"id"`
+	Object  string            `json:"object"`
+	Created int64             `json:"created"`
+	Model   string            `json:"model"`
+	Choices []OpenAIChoice    `json:"choices"`
+	Usage   *OpenAIChunkUsage `json:"usage,omitempty"`
+}
+
+// OpenAIChoice 选择项
+type OpenAIChoice struct {
+	Index        int         `json:"index"`
+	Delta        OpenAIDelta `json:"delta"`
+	FinishReason *string     `json:"finish_reason"`
+}
+
+// OpenAIDelta 增量内容
+type OpenAIDelta struct {
+	Role      string           `json:"role,omitempty"`
+	Content   string           `json:"content,omitempty"`
+	ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+}
+
+// OpenAIToolCall 工具调用
+type OpenAIToolCall struct {
+	Index    int            `json:"index"`
+	ID       string         `json:"id,omitempty"`
+	Type     string         `json:"type,omitempty"`
+	Function OpenAIFunction `json:"function,omitempty"`
+}
+
+// OpenAIFunction 函数调用
+type OpenAIFunction struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+// OpenAIToolResult 工具结果（自定义扩展）
+type OpenAIToolResult struct {
+	Index  int    `json:"index"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Result string `json:"result,omitempty"`
+	Error  string `json:"error,omitempty"`
+	Status string `json:"status"`
+}
+
+// OpenAIChunkUsage Token 使用量
+type OpenAIChunkUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+// handleStream 处理流式请求（OpenAI 兼容格式）
 func (h *ChatHandler) handleStream(c *gin.Context, sessionID string, req ChatRequest) {
 	if h.agent == nil {
-		sse.SetupHeaders(c)
-		writer := sse.NewWriter(c.Writer)
-		writer.WriteEvent("error", gin.H{
-			"code":    "service_unavailable",
-			"message": "Agent service is not available",
-		})
+		setupSSEHeaders(c)
+		writeOpenAIError(c, "service_unavailable", "Agent service is not available")
 		return
 	}
 
 	// 设置 SSE headers
-	sse.SetupHeaders(c)
+	setupSSEHeaders(c)
 
-	writer := sse.NewWriter(c.Writer)
+	// 生成响应 ID
+	responseID := "chatcmpl-" + uuid.New().String()[:24]
+	created := time.Now().Unix()
+	model := "lingguard-agent"
+	toolCallIndex := 0
 
-	// 发送 connected 事件
-	writer.WriteEvent("connected", gin.H{"session_id": sessionID})
+	// 发送角色信息
+	writeOpenAIChunk(c, OpenAIChunk{
+		ID:      responseID,
+		Object:  "chat.completion.chunk",
+		Created: created,
+		Model:   model,
+		Choices: []OpenAIChoice{
+			{
+				Index: 0,
+				Delta: OpenAIDelta{Role: "assistant"},
+			},
+		},
+	})
 
-	// 启动心跳协程（防止长任务被代理/负载均衡器断开）
+	// 心跳定时器
+	heartbeatTicker := time.NewTicker(chatHeartbeatInterval)
+	defer heartbeatTicker.Stop()
+
+	// 心跳协程
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(c.Request.Context())
 	defer cancelHeartbeat()
+	go func() {
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-heartbeatTicker.C:
+				// 发送注释作为心跳（OpenAI 兼容）
+				c.Writer.Write([]byte(": heartbeat\n\n"))
+				c.Writer.Flush()
+			}
+		}
+	}()
 
-	stopHeartbeat := sse.HeartbeatRunner(heartbeatCtx, writer, chatHeartbeatInterval)
-	defer stopHeartbeat()
-
-	// 收集完整响应（用于工具调用记录）
+	// 收集完整响应
 	var fullContent string
-	var toolCalls []ToolCall
-	var toolCallID string
+	var currentToolCallID string
 
 	// 创建流式回调
 	callback := func(event stream.StreamEvent) {
 		switch event.Type {
 		case stream.EventText:
 			fullContent += event.Content
-			writer.WriteEvent("content", gin.H{"delta": event.Content})
-
-		case stream.EventToolStart:
-			toolCallID = uuid.New().String()[:8]
-			writer.WriteEvent("tool_call", gin.H{
-				"id":     toolCallID,
-				"tool":   event.ToolName,
-				"status": "running",
+			writeOpenAIChunk(c, OpenAIChunk{
+				ID:      responseID,
+				Object:  "chat.completion.chunk",
+				Created: created,
+				Model:   model,
+				Choices: []OpenAIChoice{
+					{
+						Index: 0,
+						Delta: OpenAIDelta{Content: event.Content},
+					},
+				},
 			})
 
+		case stream.EventToolStart:
+			currentToolCallID = "call_" + uuid.New().String()[:24]
+			writeOpenAIChunk(c, OpenAIChunk{
+				ID:      responseID,
+				Object:  "chat.completion.chunk",
+				Created: created,
+				Model:   model,
+				Choices: []OpenAIChoice{
+					{
+						Index: 0,
+						Delta: OpenAIDelta{
+							ToolCalls: []OpenAIToolCall{
+								{
+									Index: toolCallIndex,
+									ID:    currentToolCallID,
+									Type:  "function",
+									Function: OpenAIFunction{
+										Name: event.ToolName,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			toolCallIndex++
+
 		case stream.EventToolEnd:
+			// 工具结果作为自定义事件发送（OpenAI 协议不包含工具结果）
+			// 使用 x-tool-result 扩展事件
 			status := "completed"
 			if event.ToolError != "" {
 				status = "failed"
 			}
-			toolCalls = append(toolCalls, ToolCall{
-				ID:     toolCallID,
-				Tool:   event.ToolName,
+			writeSSEEvent(c, "x-tool-result", OpenAIToolResult{
+				Index:  toolCallIndex - 1,
+				ID:     currentToolCallID,
+				Name:   event.ToolName,
 				Result: event.ToolResult,
+				Error:  event.ToolError,
 				Status: status,
-			})
-			writer.WriteEvent("tool_result", gin.H{
-				"id":     toolCallID,
-				"tool":   event.ToolName,
-				"status": status,
-				"result": event.ToolResult,
 			})
 
 		case stream.EventDone:
-			writer.WriteEvent("completed", gin.H{
-				"id":         uuid.New().String(),
-				"session_id": sessionID,
-				"agent_id":   "default",
+			// 发送结束块
+			finishReason := "stop"
+			if toolCallIndex > 0 {
+				finishReason = "tool_calls"
+			}
+			writeOpenAIChunk(c, OpenAIChunk{
+				ID:      responseID,
+				Object:  "chat.completion.chunk",
+				Created: created,
+				Model:   model,
+				Choices: []OpenAIChoice{
+					{
+						Index:        0,
+						Delta:        OpenAIDelta{},
+						FinishReason: &finishReason,
+					},
+				},
 			})
+			// 发送 [DONE]
+			c.Writer.Write([]byte("data: [DONE]\n\n"))
+			c.Writer.Flush()
 
 		case stream.EventError:
-			writer.WriteEvent("error", gin.H{
-				"code":    "internal_error",
-				"message": event.Error.Error(),
-			})
+			writeOpenAIError(c, "internal_error", event.Error.Error())
 		}
 	}
 
@@ -254,9 +376,51 @@ func (h *ChatHandler) handleStream(c *gin.Context, sessionID string, req ChatReq
 
 	if err != nil {
 		logger.Error("Agent process message stream failed", "error", err, "sessionId", sessionID)
-		writer.WriteEvent("error", gin.H{
-			"code":    "internal_error",
-			"message": err.Error(),
-		})
+		writeOpenAIError(c, "internal_error", err.Error())
 	}
+}
+
+// setupSSEHeaders 设置 SSE 响应头
+func setupSSEHeaders(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("X-Accel-Buffering", "no")
+}
+
+// writeOpenAIChunk 写入 OpenAI 格式的 SSE 数据块
+func writeOpenAIChunk(c *gin.Context, chunk OpenAIChunk) {
+	data, err := json.Marshal(chunk)
+	if err != nil {
+		logger.Error("Failed to marshal OpenAI chunk", "error", err)
+		return
+	}
+	c.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", data)))
+	c.Writer.Flush()
+}
+
+// writeSSEEvent 写入带事件类型的 SSE 数据
+func writeSSEEvent(c *gin.Context, eventType string, data interface{}) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		logger.Error("Failed to marshal SSE event", "error", err)
+		return
+	}
+	c.Writer.Write([]byte(fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, jsonData)))
+	c.Writer.Flush()
+}
+
+// writeOpenAIError 写入 OpenAI 格式的错误
+func writeOpenAIError(c *gin.Context, code, message string) {
+	errorData := map[string]interface{}{
+		"error": map[string]string{
+			"message": message,
+			"type":    "invalid_request_error",
+			"code":    code,
+		},
+	}
+	jsonData, _ := json.Marshal(errorData)
+	c.Writer.Write([]byte(fmt.Sprintf("data: %s\n\n", jsonData)))
+	c.Writer.Flush()
 }

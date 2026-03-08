@@ -280,7 +280,7 @@ func (c *WebChatChannel) HandleWebSocket(conn *websocket.Conn, sessionID string)
 		SessionID: sessionID,
 		UserID:    sessionID, // WebChat 中 UserID 等于 SessionID
 		Conn:      conn,
-		Send:      make(chan []byte, 100),
+		Send:      make(chan []byte, 500),
 		Close:     make(chan struct{}),
 		ClientIP:  clientIP,
 	}
@@ -411,6 +411,10 @@ func (c *WebChatChannel) writePump(conn *WebChatConnection) {
 		conn.Conn.Close()
 	}()
 
+	// 批量收集定时器（5ms 等待更多消息）
+	batchTimer := time.NewTimer(5 * time.Millisecond)
+	defer batchTimer.Stop()
+
 	for {
 		select {
 		case <-conn.Close:
@@ -427,20 +431,27 @@ func (c *WebChatChannel) writePump(conn *WebChatConnection) {
 				return
 			}
 
-			// 批量发送队列中的消息
+			// 批量发送队列中的消息（等待5ms收集更多）
 			messages := make([][]byte, 0)
+			batchTimer.Reset(5 * time.Millisecond)
+		collectBatch:
 			for {
 				select {
 				case msg := <-conn.Send:
 					messages = append(messages, msg)
-					if len(messages) >= 10 {
-						goto sendBatch
+					if len(messages) >= 20 {
+						break collectBatch
 					}
-				default:
-					goto sendBatch
+				case <-batchTimer.C:
+					// 超时，发送已收集的消息
+					break collectBatch
+				case <-conn.Close:
+					// 连接关闭，发送已收集的消息
+					break collectBatch
 				}
 			}
-		sendBatch:
+
+			// 发送批量消息
 			for _, msg := range messages {
 				if err := conn.Conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 					logger.Warn("WebSocket write error", "error", err, "sessionId", conn.SessionID)
