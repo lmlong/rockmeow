@@ -17,11 +17,15 @@ func NewWebChatHandler(handler *webchat.HTTPHandler) *WebChatHandler {
 
 // RegisterRoutes 注册路由
 func (h *WebChatHandler) RegisterRoutes(r *gin.RouterGroup) {
-	// 会话列表
-	r.GET("/api/webchat/sessions", gin.WrapF(h.handler.HandleSessions))
-	r.POST("/api/webchat/sessions", gin.WrapF(h.handler.HandleSessions))
+	// WebChat 会话 API（内部 WebUI）
+	webchat := r.Group("/webchat")
+	{
+		// 会话列表
+		webchat.GET("/sessions", gin.WrapF(h.handler.HandleSessions))
+		webchat.POST("/sessions", gin.WrapF(h.handler.HandleSessions))
 
-	// 单个会话
-	r.GET("/api/webchat/session", gin.WrapF(h.handler.HandleSession))
-	r.DELETE("/api/webchat/session", gin.WrapF(h.handler.HandleSession))
+		// 单个会话
+		webchat.GET("/session", gin.WrapF(h.handler.HandleSession))
+		webchat.DELETE("/session", gin.WrapF(h.handler.HandleSession))
+	}
 }

@@ -29,8 +29,8 @@ func (h *TaskboardHandler) SetCronDeleter(deleter taskboard.CronDeleter) {
 
 // RegisterRoutes 注册路由
 func (h *TaskboardHandler) RegisterRoutes(r *gin.RouterGroup) {
-	// 定时任务 API
-	cron := r.Group("/api/crons")
+	// 定时任务 API（内部 WebUI）
+	cron := r.Group("/crons")
 	{
 		cron.GET("", h.ListCrons)
 		cron.DELETE("/:id", h.DeleteCron)

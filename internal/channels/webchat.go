@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,16 @@ import (
 	"github.com/lingguard/pkg/stream"
 )
 
+// 默认连接限制配置
+const (
+	defaultMaxConnections      = 100
+	defaultMaxConnectionsPerIP = 5
+	defaultReadLimitKB         = 512
+	defaultWriteTimeoutSec     = 10
+	defaultReadTimeoutSec      = 60
+	defaultHeartbeatSec        = 30
+)
+
 // WebChatChannel Web 聊天渠道
 type WebChatChannel struct {
 	cfg              *config.WebChatConfig
@@ -29,6 +40,10 @@ type WebChatChannel struct {
 	// 连接管理
 	connections map[string]*WebChatConnection
 	connMu      sync.RWMutex
+
+	// IP 连接统计
+	ipConnections map[string]int // IP -> 连接数
+	ipConnMu      sync.RWMutex
 
 	// 状态
 	running bool
@@ -47,6 +62,7 @@ type WebChatConnection struct {
 	Send      chan []byte
 	Close     chan struct{}
 	mu        sync.RWMutex // 保护 SessionID 和 UserID 的并发访问
+	ClientIP  string       // 客户端 IP
 }
 
 // BroadcastMessage 广播消息
@@ -71,10 +87,11 @@ type WSResponse struct {
 // NewWebChatChannel 创建 WebChat 渠道
 func NewWebChatChannel(cfg *config.WebChatConfig, handler MessageHandler) *WebChatChannel {
 	ch := &WebChatChannel{
-		cfg:         cfg,
-		handler:     handler,
-		connections: make(map[string]*WebChatConnection),
-		broadcast:   make(chan *BroadcastMessage, 100),
+		cfg:           cfg,
+		handler:       handler,
+		connections:   make(map[string]*WebChatConnection),
+		ipConnections: make(map[string]int),
+		broadcast:     make(chan *BroadcastMessage, 100),
 	}
 
 	// 检查是否支持流式
@@ -83,6 +100,50 @@ func NewWebChatChannel(cfg *config.WebChatConfig, handler MessageHandler) *WebCh
 	}
 
 	return ch
+}
+
+// getConfig 获取配置（带默认值）
+func (c *WebChatChannel) getConfig() (maxConn, maxPerIP, readLimitKB, writeTimeout, readTimeout, heartbeat int) {
+	maxConn = defaultMaxConnections
+	maxPerIP = defaultMaxConnectionsPerIP
+	readLimitKB = defaultReadLimitKB
+	writeTimeout = defaultWriteTimeoutSec
+	readTimeout = defaultReadTimeoutSec
+	heartbeat = defaultHeartbeatSec
+
+	if c.cfg != nil {
+		if c.cfg.MaxConnections > 0 {
+			maxConn = c.cfg.MaxConnections
+		}
+		if c.cfg.MaxConnectionsPerIP > 0 {
+			maxPerIP = c.cfg.MaxConnectionsPerIP
+		}
+		if c.cfg.ReadLimitKB > 0 {
+			readLimitKB = c.cfg.ReadLimitKB
+		}
+		if c.cfg.WriteTimeoutSec > 0 {
+			writeTimeout = c.cfg.WriteTimeoutSec
+		}
+		if c.cfg.ReadTimeoutSec > 0 {
+			readTimeout = c.cfg.ReadTimeoutSec
+		}
+		if c.cfg.HeartbeatSec > 0 {
+			heartbeat = c.cfg.HeartbeatSec
+		}
+	}
+	return
+}
+
+// getClientIP 从 WebSocket 连接获取客户端 IP
+func (c *WebChatChannel) getClientIP(conn *websocket.Conn) string {
+	if conn == nil || conn.RemoteAddr() == nil {
+		return "unknown"
+	}
+	addr := conn.RemoteAddr().String()
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
 }
 
 // Name 返回渠道名称
@@ -179,6 +240,40 @@ func (c *WebChatChannel) HandleWebSocket(conn *websocket.Conn, sessionID string)
 		sessionID = "webchat-" + sessionID
 	}
 
+	// 获取配置（只获取连接限制相关参数，超时参数在 readPump/writePump 中获取）
+	maxConn, maxPerIP, _, _, _, _ := c.getConfig()
+
+	// 获取客户端 IP
+	clientIP := c.getClientIP(conn)
+
+	// 检查总连接数限制
+	c.connMu.RLock()
+	currentConnCount := len(c.connections)
+	c.connMu.RUnlock()
+
+	if currentConnCount >= maxConn {
+		logger.Warn("WebChat connection rejected: max connections reached",
+			"currentCount", currentConnCount, "maxConnections", maxConn, "clientIP", clientIP)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(1008, "server busy: max connections reached"))
+		conn.Close()
+		return
+	}
+
+	// 检查每 IP 连接数限制
+	c.ipConnMu.RLock()
+	ipConnCount := c.ipConnections[clientIP]
+	c.ipConnMu.RUnlock()
+
+	if ipConnCount >= maxPerIP {
+		logger.Warn("WebChat connection rejected: max connections per IP reached",
+			"clientIP", clientIP, "currentCount", ipConnCount, "maxPerIP", maxPerIP)
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(1008, "too many connections from your IP"))
+		conn.Close()
+		return
+	}
+
 	// 创建连接对象
 	wc := &WebChatConnection{
 		ID:        sessionID,
@@ -187,6 +282,7 @@ func (c *WebChatChannel) HandleWebSocket(conn *websocket.Conn, sessionID string)
 		Conn:      conn,
 		Send:      make(chan []byte, 100),
 		Close:     make(chan struct{}),
+		ClientIP:  clientIP,
 	}
 
 	// 注册连接
@@ -194,7 +290,12 @@ func (c *WebChatChannel) HandleWebSocket(conn *websocket.Conn, sessionID string)
 	c.connections[sessionID] = wc
 	c.connMu.Unlock()
 
-	logger.Info("WebChat connection established", "sessionId", sessionID)
+	// 更新 IP 连接统计
+	c.ipConnMu.Lock()
+	c.ipConnections[clientIP]++
+	c.ipConnMu.Unlock()
+
+	logger.Info("WebChat connection established", "sessionId", sessionID, "clientIP", clientIP)
 
 	// 启动写协程
 	go c.writePump(wc)
@@ -226,21 +327,37 @@ func (c *WebChatChannel) HandleWebSocket(conn *websocket.Conn, sessionID string)
 
 // readPump 读取 WebSocket 消息
 func (c *WebChatChannel) readPump(conn *WebChatConnection) {
+	// 获取配置
+	_, _, readLimitKB, _, readTimeout, _ := c.getConfig()
+
 	defer func() {
 		// 清理连接
 		c.connMu.Lock()
 		delete(c.connections, conn.SessionID)
 		c.connMu.Unlock()
+
+		// 减少 IP 连接统计
+		if conn.ClientIP != "" {
+			c.ipConnMu.Lock()
+			if c.ipConnections[conn.ClientIP] > 0 {
+				c.ipConnections[conn.ClientIP]--
+				if c.ipConnections[conn.ClientIP] == 0 {
+					delete(c.ipConnections, conn.ClientIP)
+				}
+			}
+			c.ipConnMu.Unlock()
+		}
+
 		close(conn.Close)
 		conn.Conn.Close()
-		logger.Info("WebChat connection closed", "sessionId", conn.SessionID)
+		logger.Info("WebChat connection closed", "sessionId", conn.SessionID, "clientIP", conn.ClientIP)
 	}()
 
 	// 设置读取配置
-	conn.Conn.SetReadLimit(512 * 1024) // 512KB
-	conn.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.Conn.SetReadLimit(int64(readLimitKB) * 1024)
+	conn.Conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeout) * time.Second))
 	conn.Conn.SetPongHandler(func(string) error {
-		conn.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.Conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeout) * time.Second))
 		return nil
 	})
 
@@ -254,7 +371,7 @@ func (c *WebChatChannel) readPump(conn *WebChatConnection) {
 		}
 
 		// 重置读取超时
-		conn.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.Conn.SetReadDeadline(time.Now().Add(time.Duration(readTimeout) * time.Second))
 
 		// 解析消息
 		var msg WSMessage
@@ -285,7 +402,10 @@ func (c *WebChatChannel) readPump(conn *WebChatConnection) {
 
 // writePump 写入 WebSocket 消息
 func (c *WebChatChannel) writePump(conn *WebChatConnection) {
-	ticker := time.NewTicker(30 * time.Second)
+	// 获取配置
+	_, _, _, writeTimeout, _, heartbeat := c.getConfig()
+
+	ticker := time.NewTicker(time.Duration(heartbeat) * time.Second)
 	defer func() {
 		ticker.Stop()
 		conn.Conn.Close()
@@ -296,7 +416,7 @@ func (c *WebChatChannel) writePump(conn *WebChatConnection) {
 		case <-conn.Close:
 			return
 		case message, ok := <-conn.Send:
-			conn.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			conn.Conn.SetWriteDeadline(time.Now().Add(time.Duration(writeTimeout) * time.Second))
 			if !ok {
 				conn.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
@@ -330,7 +450,7 @@ func (c *WebChatChannel) writePump(conn *WebChatConnection) {
 
 		case <-ticker.C:
 			// 发送心跳
-			conn.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			conn.Conn.SetWriteDeadline(time.Now().Add(time.Duration(writeTimeout) * time.Second))
 			if err := conn.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

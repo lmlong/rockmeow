@@ -135,7 +135,12 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *llm.Request) (<-chan l
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	logger.Debug("Stream request body", "body", string(reqBody))
+	// DEBUG: 完整请求体日志（用于排查 content 格式问题）
+	if len(reqBody) > 5000 {
+		logger.Debug("Stream request body (truncated)", "body", string(reqBody[:5000]))
+	} else {
+		logger.Debug("Stream request body (full)", "body", string(reqBody))
+	}
 
 	start := time.Now()
 

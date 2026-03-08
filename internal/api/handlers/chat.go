@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +12,9 @@ import (
 	"github.com/lingguard/pkg/logger"
 	"github.com/lingguard/pkg/stream"
 )
+
+// chatHeartbeatInterval Chat SSE 心跳间隔
+const chatHeartbeatInterval = 15 * time.Second
 
 // ChatHandler Chat API 处理器
 type ChatHandler struct {
@@ -180,6 +184,13 @@ func (h *ChatHandler) handleStream(c *gin.Context, sessionID string, req ChatReq
 
 	// 发送 connected 事件
 	writer.WriteEvent("connected", gin.H{"session_id": sessionID})
+
+	// 启动心跳协程（防止长任务被代理/负载均衡器断开）
+	heartbeatCtx, cancelHeartbeat := context.WithCancel(c.Request.Context())
+	defer cancelHeartbeat()
+
+	stopHeartbeat := sse.HeartbeatRunner(heartbeatCtx, writer, chatHeartbeatInterval)
+	defer stopHeartbeat()
 
 	// 收集完整响应（用于工具调用记录）
 	var fullContent string

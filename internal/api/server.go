@@ -115,8 +115,8 @@ func (s *Server) SetWebSocketHandler(h WebSocketHandler) {
 // SetWebChatAPIHandler 设置 WebChat API 处理器
 func (s *Server) SetWebChatAPIHandler(h WebChatAPIHandler) {
 	s.webchatAPIHandler = h
-	// 动态注册 WebChat API 路由
-	h.RegisterRoutes(s.router.Group(""))
+	// 动态注册 WebChat API 路由（使用 /_internal 前缀）
+	h.RegisterRoutes(s.router.Group("/_internal"))
 }
 
 // NewServer 创建统一服务器
@@ -136,15 +136,16 @@ func NewServer(cfg *config.Config, opts ...ServerOption) *Server {
 	router.Use(middleware.LoggerMiddleware())
 
 	// CORS 中间件（全局）
-	corsConfig := cfg.WebUI.CORS
-	if corsConfig == nil && cfg.WebUI != nil {
+	var corsConfig *config.CORSConfig
+	if cfg.Server != nil {
+		corsConfig = cfg.Server.CORS
+	}
+	if corsConfig == nil {
 		corsConfig = &config.CORSConfig{
 			AllowedOrigins: []string{"*"},
 		}
 	}
-	if corsConfig != nil {
-		router.Use(middleware.CORSMiddleware(corsConfig))
-	}
+	router.Use(middleware.CORSMiddleware(corsConfig))
 
 	s := &Server{
 		config: cfg,
@@ -173,17 +174,17 @@ func NewServer(cfg *config.Config, opts ...ServerOption) *Server {
 // registerRoutes 注册所有路由
 func (s *Server) registerRoutes() {
 	// ========== Agent API (/v1/*) ==========
-	if s.config.API != nil && s.config.API.Enabled {
+	if s.config.Server != nil && s.config.Server.Enabled && s.config.Server.API != nil {
 		v1 := s.router.Group("/v1")
 
 		// 认证中间件（仅对 /v1/* 路由）
-		if s.config.API.Auth != nil && s.config.API.Auth.Type == "token" && len(s.config.API.Auth.Tokens) > 0 {
-			v1.Use(middleware.AuthMiddleware(s.config.API.Auth.Tokens))
+		if s.config.Server.API.Auth != nil && s.config.Server.API.Auth.Type == "token" && len(s.config.Server.API.Auth.Tokens) > 0 {
+			v1.Use(middleware.AuthMiddleware(s.config.Server.API.Auth.Tokens))
 		}
 
 		// 限流中间件
-		if s.config.API.RateLimit != nil && s.config.API.RateLimit.Enabled {
-			v1.Use(middleware.RateLimitMiddleware(s.config.API.RateLimit))
+		if s.config.Server.API.RateLimit != nil && s.config.Server.API.RateLimit.Enabled {
+			v1.Use(middleware.RateLimitMiddleware(s.config.Server.API.RateLimit))
 		}
 
 		// Health (无需认证)
@@ -213,12 +214,14 @@ func (s *Server) registerRoutes() {
 		// v1.GET("/agents/:agent_id", s.handleGetAgent)
 	}
 
-	// ========== TaskBoard & Trace API (/api/*) ==========
+	// ========== Internal WebUI API (/_internal/*) ==========
+	// 内部 WebUI API，仅供本地访问，不对外暴露
+	internal := s.router.Group("/_internal")
 	if s.taskboardHandler != nil {
-		s.taskboardHandler.RegisterRoutes(s.router.Group(""))
+		s.taskboardHandler.RegisterRoutes(internal)
 	}
 	if s.traceHandler != nil {
-		s.traceHandler.RegisterRoutes(s.router.Group(""))
+		s.traceHandler.RegisterRoutes(internal)
 	}
 
 	// 注意：WebChat API 路由在 SetWebChatAPIHandler 中动态注册
@@ -269,11 +272,11 @@ func (s *Server) registerStaticFiles() {
 	s.router.NoRoute(func(c *gin.Context) {
 		// 如果是 API 路由但未匹配，返回 404
 		path := c.Request.URL.Path
-		if len(path) >= 4 && path[:4] == "/api" {
+		if len(path) >= 10 && path[:10] == "/_internal" {
 			c.JSON(404, gin.H{
 				"error": gin.H{
 					"code":    "not_found",
-					"message": "API endpoint not found",
+					"message": "Internal API endpoint not found",
 				},
 			})
 			return
@@ -301,25 +304,17 @@ func (s *Server) registerStaticFiles() {
 
 // Start 启动服务器
 func (s *Server) Start() error {
-	// 确定端口
+	// 确定端口和主机
 	port := 8080
 	host := "127.0.0.1"
 
-	if s.config.WebUI != nil {
-		if s.config.WebUI.Port > 0 {
-			port = s.config.WebUI.Port
+	if s.config.Server != nil {
+		if s.config.Server.Port > 0 {
+			port = s.config.Server.Port
 		}
-		if s.config.WebUI.Host != "" {
-			host = s.config.WebUI.Host
+		if s.config.Server.Host != "" {
+			host = s.config.Server.Host
 		}
-	}
-
-	// API 配置可以覆盖端口
-	if s.config.API != nil && s.config.API.Port > 0 {
-		port = s.config.API.Port
-	}
-	if s.config.API != nil && s.config.API.Host != "" {
-		host = s.config.API.Host
 	}
 
 	addr := fmt.Sprintf("%s:%d", host, port)

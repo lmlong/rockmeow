@@ -13,7 +13,7 @@
       "timeout": 120
     },
     "minimax": {
-      "apiKey": "sk-cp-xxxxxxxx",
+      "apiKey": "sk-cp-xxx",
       "apiBase": "https://api.minimaxi.com/anthropic",
       "model": "MiniMax-M2.5"
     },
@@ -157,26 +157,33 @@
     "maxBackups": 5,
     "compress": false
   },
-  "webui": {
+  "server": {
     "enabled": true,
-    "port": 18989,
     "host": "127.0.0.1",
-    "taskboard": {
-      "dbPath": "~/.lingguard/webui/taskboard.db",
-      "trackUserRequests": true,
-      "syncSubagent": true,
-      "syncCron": true
+    "port": 18989,
+    "cors": {
+      "allowedOrigins": ["*"]
     },
-    "trace": {
-      "enabled": true,
-      "dbPath": "~/.lingguard/webui/trace.db"
-    }
-  },
-  "api": {
-    "enabled": true,
-    "auth": {
-      "type": "token",
-      "tokens": ["1234567890"]
+    "api": {
+      "auth": {
+        "type": "token",
+        "tokens": ["1234567890"]
+      }
+    },
+    "webui": {
+      "taskboard": {
+        "dbPath": "~/.lingguard/webui/taskboard.db",
+        "trackUserRequests": true,
+        "syncSubagent": true,
+        "syncCron": true
+      },
+      "trace": {
+        "dbPath": "~/.lingguard/webui/trace.db"
+      },
+      "webchat": {
+        "maxConnections": 100,
+        "maxConnectionsPerIP": 5
+      }
     }
   }
 }

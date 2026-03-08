@@ -17,18 +17,31 @@ type Config struct {
 	Tools     ToolsConfig               `json:"tools"`
 	Logging   LoggingConfig             `json:"logging"`
 	Heartbeat *HeartbeatConfig          `json:"heartbeat,omitempty"` // 心跳服务配置
-	WebUI     *WebUIConfig              `json:"webui,omitempty"`     // Web UI 配置
+	Server    *ServerConfig             `json:"server,omitempty"`    // HTTP 服务器配置（统一 WebUI 和 API）
 	Timeouts  *TimeoutsConfig           `json:"timeouts,omitempty"`  // 超时配置
-	API       *APIConfig                `json:"api,omitempty"`       // Agent API 配置
 }
 
-// APIConfig Agent API 配置
+// ServerConfig HTTP 服务器配置（统一管理 WebUI 和 Agent API）
+type ServerConfig struct {
+	Enabled bool        `json:"enabled"`         // 是否启用服务器
+	Host    string      `json:"host,omitempty"`  // 监听地址，默认 127.0.0.1
+	Port    int         `json:"port,omitempty"`  // 监听端口，默认 8080
+	CORS    *CORSConfig `json:"cors,omitempty"`  // CORS 配置
+	API     *APIConfig  `json:"api,omitempty"`   // Agent API 配置 (/v1/*)
+	WebUI   *WebUIOpts  `json:"webui,omitempty"` // 内部 WebUI 配置 (/_internal/*)
+}
+
+// APIConfig Agent API 配置（对应 /v1/* 路由）
 type APIConfig struct {
-	Enabled   bool             `json:"enabled"`             // 是否启用 Agent API
-	Port      int              `json:"port,omitempty"`      // 端口，默认使用 WebUI.Port
-	Host      string           `json:"host,omitempty"`      // 主机，默认使用 WebUI.Host
 	Auth      *AuthConfig      `json:"auth,omitempty"`      // 认证配置
 	RateLimit *RateLimitConfig `json:"rateLimit,omitempty"` // 限流配置
+}
+
+// WebUIOpts 内部 WebUI 配置（对应 /_internal/* 路由）
+type WebUIOpts struct {
+	TaskBoard *TaskBoardConfig `json:"taskboard,omitempty"` // 任务看板配置
+	Trace     *TraceOpts       `json:"trace,omitempty"`     // 追踪配置
+	WebChat   *WebChatConfig   `json:"webchat,omitempty"`   // WebChat 配置
 }
 
 // AuthConfig 认证配置
@@ -323,20 +336,15 @@ type TTSConfig struct {
 	OutputDir string `json:"outputDir,omitempty"` // 输出目录，默认 ~/.lingguard/workspace/generated
 }
 
-// WebUIConfig Web UI 配置（任务看板等功能的 Web 界面）
-type WebUIConfig struct {
-	Enabled   bool             `json:"enabled"`             // 是否启用 Web UI
-	Port      int              `json:"port,omitempty"`      // 端口，默认 8080
-	Host      string           `json:"host,omitempty"`      // 主机，默认 127.0.0.1
-	TaskBoard *TaskBoardConfig `json:"taskboard,omitempty"` // 任务看板配置
-	Trace     *TraceConfig     `json:"trace,omitempty"`     // LLM 追踪配置
-	CORS      *CORSConfig      `json:"cors,omitempty"`      // CORS 配置
-	WebChat   *WebChatConfig   `json:"webchat,omitempty"`   // WebChat 配置
-}
-
 // WebChatConfig Web 聊天配置（只要配置存在就默认启用，无需 enabled 字段）
 // 存储路径固定为 ~/.lingguard/webui/webchat/sessions.json
 type WebChatConfig struct {
+	MaxConnections      int `json:"maxConnections,omitempty"`      // 最大连接数，默认 100
+	MaxConnectionsPerIP int `json:"maxConnectionsPerIP,omitempty"` // 每 IP 最大连接数，默认 5
+	ReadLimitKB         int `json:"readLimitKB,omitempty"`         // 消息大小限制 KB，默认 512
+	WriteTimeoutSec     int `json:"writeTimeoutSec,omitempty"`     // 写超时秒数，默认 10
+	ReadTimeoutSec      int `json:"readTimeoutSec,omitempty"`      // 读超时秒数，默认 60
+	HeartbeatSec        int `json:"heartbeatSec,omitempty"`        // 心跳间隔秒数，默认 30
 }
 
 // TaskBoardConfig 任务看板功能配置
@@ -347,10 +355,9 @@ type TaskBoardConfig struct {
 	SyncCron          bool   `json:"syncCron,omitempty"`          // 同步定时任务，默认 true
 }
 
-// TraceConfig LLM 追踪配置
-type TraceConfig struct {
-	Enabled bool   `json:"enabled,omitempty"` // 是否启用追踪，默认 true
-	DBPath  string `json:"dbPath,omitempty"`  // 数据库路径，默认 ~/.lingguard/webui/trace.db
+// TraceOpts LLM 追踪配置（内部 WebUI）
+type TraceOpts struct {
+	DBPath string `json:"dbPath,omitempty"` // 数据库路径，默认 ~/.lingguard/webui/trace.db
 }
 
 // CORSConfig CORS 配置
@@ -421,19 +428,21 @@ func DefaultConfig() *Config {
 			Enabled:  true,
 			Interval: 30, // 30 分钟
 		},
-		WebUI: &WebUIConfig{
+		Server: &ServerConfig{
 			Enabled: true,
-			Port:    18989,
 			Host:    "127.0.0.1",
-			TaskBoard: &TaskBoardConfig{
-				DBPath:            "~/.lingguard/webui/taskboard.db",
-				TrackUserRequests: true,
-				SyncSubagent:      true,
-				SyncCron:          true,
-			},
-			Trace: &TraceConfig{
-				Enabled: true,
-				DBPath:  "~/.lingguard/webui/trace.db",
+			Port:    18989,
+			API:     &APIConfig{},
+			WebUI: &WebUIOpts{
+				TaskBoard: &TaskBoardConfig{
+					DBPath:            "~/.lingguard/webui/taskboard.db",
+					TrackUserRequests: true,
+					SyncSubagent:      true,
+					SyncCron:          true,
+				},
+				Trace: &TraceOpts{
+					DBPath: "~/.lingguard/webui/trace.db",
+				},
 			},
 		},
 		Timeouts: &TimeoutsConfig{
@@ -582,10 +591,10 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// 验证 WebUI
-	if c.WebUI != nil && c.WebUI.Enabled {
-		if c.WebUI.Port < 1 || c.WebUI.Port > 65535 {
-			errors = append(errors, "webui.port 必须在 1-65535 范围内")
+	// 验证 Server
+	if c.Server != nil && c.Server.Enabled {
+		if c.Server.Port < 1 || c.Server.Port > 65535 {
+			errors = append(errors, "server.port 必须在 1-65535 范围内")
 		}
 	}
 

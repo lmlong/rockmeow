@@ -133,8 +133,8 @@ func runGateway() error {
 	// 初始化追踪服务
 	var traceService *trace.Service
 	var traceCollector trace.Collector
-	if cfg.WebUI != nil && cfg.WebUI.Enabled && cfg.WebUI.Trace != nil && cfg.WebUI.Trace.Enabled {
-		traceDBPath := utils.ExpandHome(cfg.WebUI.Trace.DBPath)
+	if cfg.Server != nil && cfg.Server.Enabled && cfg.Server.WebUI != nil && cfg.Server.WebUI.Trace != nil {
+		traceDBPath := utils.ExpandHome(cfg.Server.WebUI.Trace.DBPath)
 		if traceDBPath == "" {
 			traceDBPath = utils.ExpandHome("~/.lingguard/webui/trace.db")
 		}
@@ -153,10 +153,10 @@ func runGateway() error {
 	// 启动 Web UI 和任务看板服务
 	var apiServer *api.Server
 	var taskboardService *taskboard.Service
-	if cfg.WebUI != nil && cfg.WebUI.Enabled {
+	if cfg.Server != nil && cfg.Server.Enabled {
 		// 初始化任务看板（只要配置了 taskboard 就启用）
-		if cfg.WebUI.TaskBoard != nil {
-			dbPath := utils.ExpandHome(cfg.WebUI.TaskBoard.DBPath)
+		if cfg.Server.WebUI != nil && cfg.Server.WebUI.TaskBoard != nil {
+			dbPath := utils.ExpandHome(cfg.Server.WebUI.TaskBoard.DBPath)
 			if dbPath == "" {
 				dbPath = utils.ExpandHome("~/.lingguard/webui/taskboard.db")
 			}
@@ -171,7 +171,7 @@ func runGateway() error {
 			logger.Info("TaskBoard service initialized", "db", dbPath)
 
 			// 同步定时任务到看板
-			if cfg.WebUI.TaskBoard.SyncCron && cronService != nil {
+			if cfg.Server.WebUI.TaskBoard.SyncCron && cronService != nil {
 				cronAdapter := taskboard.NewCronAdapter(taskboardService)
 
 				// 为现有的定时任务创建看板任务
@@ -380,17 +380,23 @@ func registerChannels(cfg *config.Config, mgr *channels.Manager, workspace strin
 		logger.Info("QQ channel registered")
 	}
 
-	// WebChat 渠道（随 WebUI 自动启用，无需额外配置）
-	if cfg.WebUI != nil && cfg.WebUI.Enabled {
-		webChatChannel = channels.NewWebChatChannel(&config.WebChatConfig{}, handler)
+	// WebChat 渠道（随 Server 自动启用，无需额外配置）
+	if cfg.Server != nil && cfg.Server.Enabled {
+		var webChatCfg *config.WebChatConfig
+		if cfg.Server.WebUI != nil && cfg.Server.WebUI.WebChat != nil {
+			webChatCfg = cfg.Server.WebUI.WebChat
+		} else {
+			webChatCfg = &config.WebChatConfig{}
+		}
+		webChatChannel = channels.NewWebChatChannel(webChatCfg, handler)
 		mgr.RegisterChannel(webChatChannel)
-		logger.Info("WebChat channel registered (auto-enabled with WebUI)")
+		logger.Info("WebChat channel registered (auto-enabled with Server)")
 	}
 
 	// 检查是否有渠道
 	if (cfg.Channels.Feishu == nil || !cfg.Channels.Feishu.Enabled) &&
 		(cfg.Channels.QQ == nil || !cfg.Channels.QQ.Enabled) &&
-		(cfg.WebUI == nil || cfg.WebUI.WebChat == nil) {
+		(cfg.Server == nil || !cfg.Server.Enabled) {
 		return nil, fmt.Errorf("no channels enabled, please configure at least one channel")
 	}
 

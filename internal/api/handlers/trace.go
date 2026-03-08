@@ -21,16 +21,17 @@ func NewTraceHandler(service *trace.Service) *TraceHandler {
 
 // RegisterRoutes 注册路由
 func (h *TraceHandler) RegisterRoutes(r *gin.RouterGroup) {
-	traces := r.Group("/api")
+	// 追踪 API（内部 WebUI）
+	traces := r.Group("/traces")
 	{
-		traces.GET("/traces", h.ListTraces)
-		traces.GET("/traces/stats", h.GetStats)
-		traces.GET("/traces/:id", h.GetTrace)
-		traces.GET("/traces/:id/spans", h.GetTraceSpans)
-		traces.DELETE("/traces/:id", h.DeleteTrace)
-		traces.DELETE("/traces/cleanup", h.CleanupTraces)
+		traces.GET("", h.ListTraces)
+		traces.GET("/stats", h.GetStats)
+		traces.GET("/:id", h.GetTrace)
+		traces.GET("/:id/spans", h.GetTraceSpans)
+		traces.DELETE("/:id", h.DeleteTrace)
+		traces.DELETE("/cleanup", h.CleanupTraces)
 		traces.GET("/spans/:id", h.GetSpan)
-		traces.GET("/trace/events", h.SSE)
+		traces.GET("/events", h.SSE)
 	}
 }
 

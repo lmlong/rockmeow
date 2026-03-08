@@ -1,1206 +1,704 @@
-# LingGuard API 文档
+# LingGuard Agent API 文档
+
+> 版本: 1.0.0
+> 基础 URL: `http://localhost:18989`
 
 ## 概述
 
-LingGuard 提供统一的 LLM API 接口，兼容 OpenAI API 规范，支持多种 LLM 提供商。
+LingGuard Agent API 是一个智能体服务接口，与 OpenAI Chat API 不同，它是**有状态**的，自动管理会话历史、工具执行和记忆系统。
+
+| 特性 | OpenAI Chat API | LingGuard Agent API |
+|------|-----------------|---------------------|
+| 状态管理 | 无状态（客户端管理历史） | 有状态（Session 自动管理） |
+| 工具执行 | 返回工具调用，客户端执行 | 自动执行，返回最终结果 |
+| 记忆系统 | 无 | 内置长期记忆 + 向量检索 |
 
 ---
 
-## 1. LLM Provider API
+## 认证
 
-### 1.1 统一请求格式
+所有 API 请求需要在 Header 中携带 Token：
 
-所有 LLM Provider 都遵循 OpenAI 兼容的 API 格式：
-
-```
-POST {apiBase}/chat/completions
-```
-
-### 1.2 请求头
-
-| Header | 值 | 说明 |
-|--------|-----|------|
-| `Content-Type` | `application/json` | 内容类型 |
-| `Authorization` | `Bearer {apiKey}` | API 密钥 |
-
-### 1.3 请求体
-
-```json
-{
-  "model": "string",           // 必填：模型名称
-  "messages": [                // 必填：消息数组
-    {
-      "role": "system|user|assistant|tool",
-      "content": "string",
-      "tool_calls": [],        // 可选：工具调用（assistant 角色）
-      "tool_call_id": "string" // 可选：工具调用 ID（tool 角色）
-    }
-  ],
-  "tools": [],                 // 可选：工具定义
-  "temperature": 0.7,          // 可选：温度参数 (0-2)
-  "max_tokens": 4096,          // 可选：最大 token 数
-  "stream": false              // 可选：是否流式响应
-}
-```
-
-### 1.4 响应格式
-
-```json
-{
-  "id": "chatcmpl-xxx",
-  "object": "chat.completion",
-  "created": 1234567890,
-  "model": "glm-5",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "响应内容",
-        "tool_calls": []
-      },
-      "finish_reason": "stop|tool_calls|length"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 100,
-    "completion_tokens": 50,
-    "total_tokens": 150
-  }
-}
-```
-
-### 1.5 流式响应 (SSE)
-
-当 `stream: true` 时，返回 Server-Sent Events：
-
-```
-data: {"id":"chatcmpl-xxx","choices":[{"delta":{"content":"Hello"},"index":0}]}
-
-data: {"id":"chatcmpl-xxx","choices":[{"delta":{"content":" world"},"index":0}]}
-
-data: [DONE]
+```http
+Authorization: Bearer <your-token>
 ```
 
 ---
 
-## 2. 支持的 Provider 端点
+## API 端点
 
-| Provider | apiBase | 说明 |
-|----------|---------|------|
-| OpenRouter | `https://openrouter.ai/api/v1` | 推荐，支持所有模型 |
-| Anthropic | `https://api.anthropic.com/v1` | Claude 直连 |
-| OpenAI | `https://api.openai.com/v1` | GPT 直连 |
-| DeepSeek | `https://api.deepseek.com/v1` | DeepSeek |
-| Groq | `https://api.groq.com/openai/v1` | 高速推理 |
-| Gemini | `https://generativelanguage.googleapis.com/v1beta` | Google Gemini |
-| vLLM | `http://localhost:8000/v1` | 本地模型 |
-| GLM | `https://open.bigmodel.cn/api/paas/v4` | 智谱 AI |
-| MiniMax | `https://api.minimax.chat/v1` | MiniMax AI |
-| Moonshot | `https://api.moonshot.cn/v1` | 月之暗面 Kimi |
-| Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 阿里云通义 |
-| AiHubMix | `https://aihubmix.com/v1` | 多模型网关 |
+### POST /v1/agent/chat
 
----
+与智能体进行对话。支持流式和非流式响应。
 
-## 3. Provider 自动匹配（参考 nanobot Provider Registry）
+**请求体**
 
-LingGuard 支持根据模型名自动选择 Provider，使用 ProviderSpec 作为单一真实来源。
-
-### 3.1 匹配规则（优先级从高到低）
-
-1. **解析 `provider/model` 格式**: 支持 `glm/glm-4-plus` 格式，直接使用指定 provider
-2. **直接匹配 Provider 名称**: 如果 model 值是已注册的 provider 名称，直接使用
-3. **关键词匹配**: 根据模型名中的关键词自动匹配（gpt → openai, claude → anthropic）
-4. **API Key 前缀匹配**: 根据 API Key 前缀检测（sk-or- → openrouter, gsk_ → groq）
-5. **API Base URL 匹配**: 根据 API Base URL 关键词检测
-6. **默认 Provider**: 如果以上都不匹配，使用默认 provider
-
-### 3.2 ProviderSpec 规范
-
-```go
-type ProviderSpec struct {
-    Name             string   // provider 名称
-    Keywords         []string // 模型名关键词
-    DisplayName      string   // 显示名称
-    APIKeyPrefix     string   // API Key 前缀
-    APIBaseKeyword   string   // API Base URL 关键词
-    DefaultAPIBase   string   // 默认 API Base
-    DefaultModel     string   // 默认模型
-    IsAnthropic      bool     // 是否使用 Anthropic 格式
-    IsGateway        bool     // 是否是网关类型
-    LiteLLMPrefix    string   // 模型前缀
-    SkipPrefixes     []string // 跳过已有前缀
+```json
+{
+  "message": "帮我分析今天的日程安排",
+  "media": ["https://example.com/image.png"],
+  "session_id": "user-123-device-456",
+  "stream": true,
+  "clear_history": false
 }
 ```
 
-### 3.3 内置 Provider 规范
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `message` | string | 是 | 用户消息内容 |
+| `media` | []string | 否 | 多媒体 URL 列表（图片、文件等） |
+| `session_id` | string | 否 | 会话 ID，不传则新建 |
+| `stream` | bool | 否 | 是否流式响应，默认 `false` |
+| `clear_history` | bool | 否 | 是否清空历史后对话，默认 `false` |
 
-| Provider | Keywords | DefaultModel | APIKeyPrefix |
-|----------|----------|--------------|--------------|
-| openai | gpt, o1, o3, chatgpt | gpt-4o | sk- |
-| anthropic | claude | claude-3-5-sonnet-20241022 | sk-ant- |
-| deepseek | deepseek | deepseek-chat | sk- |
-| openrouter | openrouter | anthropic/claude-3.5-sonnet | sk-or- |
-| qwen | qwen, tongyi, dashscope | qwen-max | - |
-| glm | glm, chatglm, codegeex, zhipu | glm-4 | - |
-| minimax | minimax | abab6.5s-chat | - |
-| moonshot | moonshot, kimi | moonshot-v1-8k | - |
-| gemini | gemini | gemini-1.5-pro | - |
-| groq | groq, llama, mixtral, gemma | llama-3.1-70b-versatile | gsk_ |
-| vllm | vllm | (需配置) | - |
-| aihubmix | aihubmix | (需配置) | - |
+**非流式响应**
 
-### 3.4 配置覆盖机制
-
-config.json 中的配置会覆盖 spec.go 中的默认值：
-
-| 配置项 | config.json | spec.go |
-|--------|-------------|---------|
-| apiBase | ✅ 覆盖 | 默认值 |
-| model | ✅ 覆盖 | 默认值 |
-| IsAnthropic | 根据 apiBase 判断 | 默认值 |
-
-**Provider 类型判断：**
-- 如果 config.json 配置了 apiBase，根据 apiBase 是否包含 `/anthropic` 判断
-- 否则，使用 spec.go 中的 IsAnthropic
-
-### 3.5 配置示例
-
-**简化配置（使用默认值）：**
 ```json
 {
-  "providers": {
-    "deepseek": {
-      "apiKey": "sk-xxx"
+  "id": "resp-a1b2c3d4",
+  "session_id": "user-123-device-456",
+  "agent_id": "default",
+  "content": "根据您的日历，今天有以下安排...",
+  "created_at": "2026-03-06T10:30:00Z"
+}
+```
+
+**流式响应（SSE）**
+
+```
+event: connected
+data: {"session_id": "user-123-device-456"}
+
+event: content
+data: {"delta": "根据您的日历，"}
+
+event: tool_call
+data: {"tool": "calendar", "status": "running"}
+
+event: tool_result
+data: {"tool": "calendar", "status": "completed", "result": "找到 3 个事件"}
+
+event: completed
+data: {"id": "resp-a1b2c3d4"}
+
+event: error
+data: {"code": "tool_error", "message": "工具执行失败"}
+```
+
+---
+
+## 通信方式对比
+
+LingGuard 提供两种流式通信方式：**HTTP + SSE** 和 **WebSocket**。
+
+### 架构对比
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          API Server (Gin)                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│   ┌─────────────────────────────┐    ┌─────────────────────────────┐   │
+│   │      HTTP + SSE             │    │       WebSocket             │   │
+│   │   POST /v1/agent/chat       │    │      GET /ws/chat           │   │
+│   │   (stream: true)            │    │      ?session=xxx           │   │
+│   └─────────────────────────────┘    └─────────────────────────────┘   │
+│                 │                                   │                   │
+│                 └───────────────┬───────────────────┘                   │
+│                                 ▼                                       │
+│                    ┌────────────────────────┐                          │
+│                    │      Agent Core        │                          │
+│                    │  ProcessMessageStream  │                          │
+│                    └────────────────────────┘                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 方式一：HTTP + SSE
+
+**端点**: `POST /v1/agent/chat` (设置 `stream: true`)
+
+**特点**: 基于 HTTP 的单向服务端推送
+
+**请求示例**:
+```bash
+curl -X POST http://localhost:18989/v1/agent/chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "你好", "session_id": "user-123", "stream": true}'
+```
+
+**前端使用**:
+```javascript
+const response = await fetch('/v1/agent/chat', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    message: '你好',
+    session_id: 'user-123',
+    stream: true
+  })
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  const text = decoder.decode(value);
+  // 解析 SSE 格式: "event: xxx\ndata: {...}\n\n"
+  const lines = text.split('\n');
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const data = JSON.parse(line.slice(6));
+      console.log(data);
     }
   }
 }
 ```
 
-**覆盖默认值：**
+**SSE 事件类型**:
+
+| Event | Data | 说明 |
+|-------|------|------|
+| `connected` | `{session_id}` | 连接建立 |
+| `content` | `{delta}` | 文本增量 |
+| `tool_call` | `{id, tool, status}` | 工具调用开始 |
+| `tool_result` | `{id, tool, status, result}` | 工具调用结果 |
+| `completed` | `{id, session_id, agent_id}` | 完成 |
+| `error` | `{code, message}` | 错误 |
+
+---
+
+### 方式二：WebSocket
+
+**端点**: `GET /ws/chat?session={session_id}`
+
+**特点**: 全双工双向通信，保持长连接
+
+**连接示例**:
+```javascript
+const ws = new WebSocket('ws://localhost:18989/ws/chat?session=user-123');
+
+ws.onopen = () => {
+  console.log('WebSocket connected');
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Received:', data);
+};
+
+// 发送消息
+ws.send(JSON.stringify({
+  type: 'chat',
+  content: '你好'
+}));
+```
+
+**消息格式**:
+
+*客户端 → 服务端*:
 ```json
-{
-  "providers": {
-    "glm": {
-      "apiKey": "xxx.xxx",
-      "apiBase": "https://open.bigmodel.cn/api/anthropic",
-      "model": "glm-5"
-    }
+{"type": "chat", "content": "你好"}
+{"type": "ping"}
+{"type": "switch", "content": "new-session-id"}
+```
+
+*服务端 → 客户端*:
+```json
+{"type": "connected", "sessionId": "webchat-xxx", "done": true}
+{"type": "stream", "content": "增量文本", "sessionId": "webchat-xxx", "done": false}
+{"type": "stream_end", "content": "完整响应", "sessionId": "webchat-xxx", "done": true}
+{"type": "chat", "content": "完整响应", "sessionId": "webchat-xxx", "done": true}
+{"type": "error", "content": "错误信息", "sessionId": "webchat-xxx", "done": true}
+{"type": "pong"}
+```
+
+**消息类型说明**:
+
+| Type | 方向 | 说明 |
+|------|------|------|
+| `chat` | 双向 | 完整消息 |
+| `stream` | 服务端→客户端 | 流式文本增量 |
+| `stream_end` | 服务端→客户端 | 流式结束 |
+| `connected` | 服务端→客户端 | 连接确认（含实际 sessionId） |
+| `switch` | 客户端→服务端 | 切换会话 |
+| `switched` | 服务端→客户端 | 会话切换确认 |
+| `ping/pong` | 双向 | 心跳 |
+
+---
+
+### 优缺点对比
+
+| 特性 | HTTP + SSE | WebSocket |
+|------|-----------|-----------|
+| **通信方向** | 单向（服务端推送） | 双向 |
+| **协议** | HTTP/1.1 | WS/WSS |
+| **连接状态** | 请求级，每次请求建立 | 连接级，保持长连接 |
+| **断线重连** | 需手动处理 | 需手动处理 |
+| **浏览器支持** | EventSource API | WebSocket API |
+| **代理/防火墙** | 兼容性好（纯 HTTP） | 可能被拦截 |
+| **资源消耗** | 每次请求创建连接 | 保持连接，开销低 |
+| **适用场景** | API 集成、一次性请求 | 实时聊天、长连接 |
+| **认证** | Header 携带 Token | URL 参数或首次消息 |
+
+**HTTP + SSE 优点**:
+- 简单易用，基于标准 HTTP
+- 天然支持断线重连（浏览器 EventSource 自动重连）
+- 穿透代理/防火墙能力强
+- 适合偶尔的对话场景
+
+**HTTP + SSE 缺点**:
+- 单向通信，客户端无法在连接中发送额外数据
+- 每次请求都需要重新建立连接
+- 不适合高频交互场景
+
+**WebSocket 优点**:
+- 全双工通信，实时性好
+- 保持长连接，无需重复握手
+- 适合高频、持续的对话场景
+- 服务端可主动推送消息
+
+**WebSocket 缺点**:
+- 需要维护连接状态
+- 某些网络环境可能被拦截
+- 断线重连需要自行实现
+
+---
+
+### 移动端支持 (iOS / Android)
+
+| 平台 | HTTP + SSE | WebSocket |
+|------|-----------|-----------|
+| **iOS** | 无原生支持，需第三方库 | iOS 13+ 原生支持 (URLSessionWebSocketTask) |
+| **Android** | 无原生支持，需第三方库 | 无原生支持，需 OkHttp 等库 |
+
+**iOS 示例 (WebSocket)**:
+```swift
+// iOS 13+ 原生 WebSocket
+let url = URL(string: "ws://localhost:18989/ws/chat?session=user-123")!
+let task = URLSession.shared.webSocketTask(with: url)
+task.resume()
+
+// 发送消息
+let message = URLSessionWebSocketTask.Message.string("""
+{"type": "chat", "content": "你好"}
+""")
+task.send(message) { error in
+  if let error = error { print("Send error: \(error)") }
+}
+
+// 接收消息
+task.receive { result in
+  switch result {
+  case .success(let message):
+    // 处理消息
+  case .failure(let error):
+    print("Receive error: \(error)")
   }
 }
 ```
 
-### 3.6 添加新 Provider
+**Android 示例 (WebSocket)**:
+```kotlin
+// 使用 OkHttp
+val client = OkHttpClient()
+val request = Request.Builder()
+  .url("ws://localhost:18989/ws/chat?session=user-123")
+  .build()
 
-只需 2 步：
-
-**步骤 1**: 在 `internal/providers/spec.go` 的 `PROVIDERS` 中添加：
-
-```go
-{
-    Name:           "myprovider",
-    Keywords:       []string{"mymodel"},
-    DisplayName:    "My Provider",
-    DefaultAPIBase: "https://api.myprovider.com/v1",
-    DefaultModel:   "my-model-v1",
-}
-```
-
-**步骤 2**: 在 `config.json` 中配置：
-
-```json
-"providers": {
-    "myprovider": {
-        "apiKey": "sk-xxx"
-    }
-}
-```
-
----
-
-## 4. 工具调用 API
-
-### 4.1 工具定义格式
-
-```json
-{
-  "type": "function",
-  "function": {
-    "name": "shell",
-    "description": "Execute shell commands",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "command": {
-          "type": "string",
-          "description": "The shell command to execute"
-        },
-        "timeout": {
-          "type": "integer",
-          "description": "Timeout in seconds"
-        }
-      },
-      "required": ["command"]
-    }
+val webSocket = client.newWebSocket(request, object : WebSocketListener() {
+  override fun onOpen(webSocket: WebSocket, response: Response) {
+    // 连接成功
   }
-}
+
+  override fun onMessage(webSocket: WebSocket, text: String) {
+    // 接收消息
+    val data = JSONObject(text)
+  }
+
+  override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+    // 连接失败
+  }
+})
+
+// 发送消息
+webSocket.send("""{"type": "chat", "content": "你好"}""")
 ```
 
-### 4.2 工具调用响应
-
-当 LLM 决定调用工具时，响应中包含 `tool_calls`：
-
-```json
-{
-  "role": "assistant",
-  "content": null,
-  "tool_calls": [
-    {
-      "id": "call_abc123",
-      "type": "function",
-      "function": {
-        "name": "shell",
-        "arguments": "{\"command\":\"ls -la\"}"
-      }
-    }
-  ]
-}
-```
-
-### 4.3 工具结果提交
-
-```json
-{
-  "role": "tool",
-  "tool_call_id": "call_abc123",
-  "content": "total 32\ndrwxr-xr-x 4 user user 4096 ..."
-}
-```
+**移动端推荐**:
+- **聊天 APP**: 推荐 WebSocket（实时性、保持连接）
+- **工具类 APP**: 推荐 HTTP + SSE（简单、按需请求）
+- **后台限制严格**: 推荐 HTTP + SSE（更省电）
 
 ---
 
-## 5. 内置工具
+### 选择建议
 
-### 5.1 Shell 工具
+| 场景 | 推荐方式 | 理由 |
+|------|---------|------|
+| Web 聊天界面 | WebSocket | 实时双向、用户体验好 |
+| API 集成 | HTTP + SSE | 简单、标准 HTTP |
+| 移动端 APP | WebSocket | 保持连接、低延迟 |
+| 一次性请求 | HTTP (非流式) | 最简单 |
+| 长时间任务 | HTTP + SSE / Task API | 异步处理 |
 
-执行 shell 命令。
+---
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| command | string | 是 | Shell 命令 |
-| timeout | integer | 否 | 超时秒数，默认 30 |
+### 会话 API
 
-### 5.2 文件操作工具
+#### GET /v1/sessions
 
-| 工具名 | 说明 | 参数 |
-|--------|------|------|
-| file_read | 读取文件 | `path`: 文件路径 |
-| file_write | 写入文件 | `path`, `content` |
-| file_edit | 编辑文件 | `path`, `old_string`, `new_string` |
-| file_list | 列出目录 | `path`: 目录路径 |
+获取会话列表。
 
-### 5.3 工作目录工具
-
-运行时更改工作目录，所有后续 shell 和文件操作都会在新目录下执行。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| operation | string | 是 | 操作类型: `pwd`, `cd`, `ls` |
-| path | string | 否 | 路径（cd 操作必填）|
-
-**操作说明**：
-- `pwd`: 显示当前工作目录
-- `cd`: 切换工作目录（支持相对/绝对路径）
-- `ls`: 列出当前目录内容
-
-**示例**：
-```json
-{"operation": "cd", "path": "/home/user/project"}
-{"operation": "pwd"}
-{"operation": "ls"}
-```
-
-### 5.4 网页工具
-
-#### 5.3.1 web_search
-
-使用 Tavily AI 搜索网页，专为 AI 应用优化的搜索 API。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| query | string | 是 | 搜索关键词 |
-| count | integer | 否 | 返回结果数量 (1-10)，默认 5 |
-| searchDepth | string | 否 | 搜索深度: `basic` (快速) 或 `advanced` (全面)，默认 `basic` |
-| includeAnswer | boolean | 否 | 是否包含 AI 生成的答案，默认 true |
-
-**配置要求**：需要设置 `tavilyApiKey` 配置或 `TAVILY_API_KEY` 环境变量。
-
-**返回示例**：
-```
-Search results for: Go programming language
-
-📋 Answer: Go is an open source programming language developed by Google...
-
-1. The Go Programming Language
-   🔗 https://go.dev/
-   📄 Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.
-
-2. GitHub - golang/go
-   🔗 https://github.com/golang/go
-   📄 The Go programming language. Contribute to golang/go development by creating an account on GitHub.
-```
-
-#### 5.3.2 web_fetch
-
-抓取网页内容并提取可读文本。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| url | string | 是 | 网页地址 |
-| extractMode | string | 否 | 提取模式: `markdown` 或 `text`，默认 `markdown` |
-| maxChars | integer | 否 | 最大字符数，默认 50000 |
-
-**返回示例**：
-```json
-{
-  "url": "https://example.com",
-  "finalUrl": "https://example.com/",
-  "status": 200,
-  "extractor": "readability",
-  "truncated": false,
-  "length": 1234,
-  "text": "# Example Domain\n\nThis domain is for use in illustrative examples..."
-}
-```
-
-### 5.5 消息发送工具
-
-在任务执行过程中主动向用户发送消息通知。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| content | string | 是 | 要发送的消息内容 |
-
-**使用场景**：
-- 长任务执行时发送进度通知
-- 重要操作完成后的主动提醒
-- 需要用户注意的关键信息
-
-**示例**：
-```json
-{"content": "正在分析项目，请稍候..."}
-{"content": "已完成 50%，继续处理中"}
-```
-
-**注意**：仅在 Gateway 模式下生效，CLI 模式下会返回警告。
-
-### 5.6 Spawn 工具
-
-生成子任务并行处理。
+**查询参数**
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| tasks | array | 任务列表 |
-| tasks[].prompt | string | 任务描述 |
-| tasks[].description | string | 任务简述 |
+| `limit` | int | 返回数量，默认 20 |
+| `offset` | int | 偏移量，默认 0 |
 
-### 5.7 TTS 工具
+**响应**
 
-语音合成工具，将文本转换为语音。
+```json
+{
+  "sessions": [
+    {
+      "id": "user-123-device-456",
+      "title": "日程安排分析",
+      "message_count": 12,
+      "created_at": "2026-03-05T14:00:00Z",
+      "updated_at": "2026-03-06T10:30:00Z"
+    }
+  ],
+  "total": 5
+}
+```
 
-| 参数 | 类型 | 必填 | 说明 |
+---
+
+#### GET /v1/sessions/{session_id}
+
+获取会话详情，包含历史消息。
+
+---
+
+#### DELETE /v1/sessions/{session_id}
+
+删除会话及其历史记录。
+
+---
+
+#### POST /v1/sessions/{session_id}/clear
+
+清空会话历史，保留会话本身。
+
+---
+
+### 任务 API
+
+用于长时间运行的异步任务。
+
+**特性**：
+- 最大并发：3 个任务同时执行
+- 排队机制：超过并发限制的任务进入 FIFO 队列等待
+- 自动会话：不传 `session_id` 时自动创建独立会话
+- 回调通知：任务完成后 POST 到 `callback_url`
+
+#### POST /v1/tasks
+
+创建异步任务。
+
+**请求体**
+
+```json
+{
+  "message": "帮我重构整个项目的代码结构",
+  "session_id": "session-abc123",
+  "callback_url": "https://your-server.com/callback"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| action | string | 是 | 动作类型：`synthesize` |
-| text | string | 是 | 要合成的文本内容（最大 5000 字符） |
-| voice | string | 否 | 音色（默认 Cherry） |
+| `message` | string | 是 | 任务描述 |
+| `session_id` | string | 否 | 会话 ID，不传则自动创建 |
+| `media` | []string | 否 | 多媒体 URL 列表 |
+| `callback_url` | string | 否 | 任务完成回调 URL |
 
-**可用音色：**
+**响应**
 
-| 音色 | 描述 |
+```json
+{
+  "id": "task-abc123",
+  "status": "pending",
+  "session_id": "session-abc123",
+  "message": "帮我重构整个项目的代码结构...",
+  "created_at": "2026-03-06T10:00:00Z"
+}
+```
+
+---
+
+#### GET /v1/tasks/{task_id}
+
+查询任务状态。
+
+**状态值**
+
+| 状态 | 说明 |
 |------|------|
-| Cherry | 甜美女声（默认） |
-| Serena | 温柔女声 |
-| Ethan | 沉稳男声 |
-| Chelsie | 活力女声 |
-| Momo | 可爱童声 |
-| Vivian | 知性女声 |
-| Moon | 亲切男声 |
-| Maia | 清澈女声 |
-| Kai | 磁性男声 |
-
-**示例：**
-```json
-{"action": "synthesize", "text": "你好，这是一段测试语音"}
-{"action": "synthesize", "text": "欢迎使用语音合成功能", "voice": "Ethan"}
-```
-
-**返回格式：**
-```
-语音合成成功！
-文本: 你好，这是一段测试语音
-音色: Cherry
-时长: 3.5 秒
-
-[GENERATED_AUDIO:/home/user/.lingguard/workspace/generated/audio-20260220.wav]
-```
-
-**配置要求：** 需要配置 `tts` 配置或 `providers.qwen.apiKey`。
-
-### 5.8 AIGC 工具
-
-图像和视频生成工具，使用阿里云通义万相。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| action | string | 是 | 生成动作类型 |
-| prompt | string | 是 | 文字描述 |
-| image_path | string | 条件 | 图片路径（图生视频时需要） |
-| video_path | string | 条件 | 视频路径（视频生视频时需要） |
-| model | string | 否 | 使用的模型 |
-| size | string | 否 | 图片尺寸（如 1024x1024） |
-| duration | integer | 否 | 视频时长秒数（默认 5） |
-| style | string | 否 | 风格预设 |
-
-**动作类型：**
-
-| 动作 | 说明 | 模型 |
-|------|------|------|
-| `generate_image` | 文生图 | wan2.6-t2i |
-| `generate_video` | 文生视频 | wan2.6-t2v |
-| `generate_video_from_image` | 图生视频 | wan2.6-i2v-flash |
-| `generate_video_from_video` | 视频生视频 | wan2.6-r2v-flash |
-
-**示例：**
-
-```json
-// 文生图
-{"action": "generate_image", "prompt": "一只可爱的猫咪坐在椅子上"}
-
-// 文生视频
-{"action": "generate_video", "prompt": "一只猫在花园里散步", "duration": 5}
-
-// 图生视频
-{"action": "generate_video_from_image", "prompt": "猫开始走动", "image_path": "/path/to/image.png"}
-
-// 视频生视频（保持角色一致性）
-{"action": "generate_video_from_video", "prompt": "人物开始跳舞", "video_path": "/path/to/video.mp4"}
-```
-
-**返回格式：**
-```
-图片生成成功！
-描述: 一只可爱的猫咪坐在椅子上
-
-[GENERATED_IMAGE:/home/user/.lingguard/workspace/generated/image-20260220.png]
-```
-
-```
-视频生成成功！
-描述: 一只猫在花园里散步
-时长: 5 秒
-
-[GENERATED_VIDEO:/home/user/.lingguard/workspace/generated/video-20260220.mp4]
-```
-
-**配置要求：** 需要配置 `tools.aigc.enabled = true` 和 `providers.qwen.apiKey`。
+| `pending` | 等待执行（排队中） |
+| `running` | 执行中 |
+| `completed` | 已完成 |
+| `failed` | 执行失败 |
+| `cancelled` | 已取消 |
 
 ---
 
-## 6. 飞书 Channel API
+#### DELETE /v1/tasks/{task_id}
 
-### 6.1 获取访问令牌
-
-```
-POST https://open.feishu.cn/open-api/auth/v3/tenant_access_token/internal/
-Content-Type: application/json
-
-{
-  "app_id": "cli_xxx",
-  "app_secret": "xxx"
-}
-```
-
-**响应：**
-
-```json
-{
-  "code": 0,
-  "msg": "ok",
-  "tenant_access_token": "t-xxx",
-  "expire": 7200
-}
-```
-
-### 6.2 获取 WebSocket 连接地址
-
-```
-GET https://open.feishu.cn/open-api/bot/v3/ws
-Authorization: Bearer {tenant_access_token}
-```
-
-**响应：**
-
-```json
-{
-  "code": 0,
-  "msg": "ok",
-  "data": {
-    "url": "wss://ws.feishu.cn/xxx"
-  }
-}
-```
-
-### 6.3 发送消息
-
-```
-POST https://open.feishu.cn/open-api/im/v1/messages?receive_id_type=open_id
-Authorization: Bearer {tenant_access_token}
-Content-Type: application/json
-
-{
-  "receive_id": "ou_xxx",
-  "msg_type": "text",
-  "content": "{\"text\":\"Hello\"}"
-}
-```
-
-### 6.4 接收消息事件 (WebSocket)
-
-```json
-{
-  "header": {
-    "event_id": "xxx",
-    "event_type": "im.message.receive_v1",
-    "create_time": "1700000000000"
-  },
-  "event": {
-    "sender": {
-      "sender_id": {
-        "open_id": "ou_xxx"
-      }
-    },
-    "message": {
-      "message_id": "om_xxx",
-      "content": "{\"text\":\"Hello\"}",
-      "create_time": 1700000000
-    }
-  }
-}
-```
+删除/取消任务。如果任务正在运行，会先取消再删除。
 
 ---
 
-## 7. QQ Channel API
+#### GET /v1/tasks/{task_id}/events
 
-### 7.1 概述
-
-QQ Channel 使用 WebSocket Gateway 连接，支持私聊消息（C2C）和频道消息。
-
-- **网关地址**: `wss://api.sgroup.qq.com/websocket`
-- **无需公网 IP**: 使用 WebSocket 长连接接收事件
-
-### 7.2 配置
-
-```json
-{
-  "channels": {
-    "qq": {
-      "enabled": true,
-      "appId": "xxx",
-      "secret": "xxx",
-      "allowFrom": []
-    }
-  }
-}
-```
-
-### 7.3 WebSocket Gateway 协议
-
-#### 7.3.1 连接流程
-
-1. 建立 WebSocket 连接到 `wss://api.sgroup.qq.com/websocket`
-2. 收到 `OP 10 Hello` 后发送 `OP 2 Identify` 进行身份认证
-3. 开始心跳（间隔由服务器指定）
-4. 接收 `OP 0 Dispatch` 事件
-
-#### 7.3.2 Opcode 定义
-
-| Op | 名称 | 说明 |
-|----|------|------|
-| 0 | Dispatch | 服务器推送事件 |
-| 1 | Heartbeat | 客户端发送心跳 |
-| 2 | Identify | 客户端身份认证 |
-| 7 | Reconnect | 服务器要求重连 |
-| 9 | Invalid Session | 会话失效 |
-| 10 | Hello | 服务器欢迎消息 |
-| 11 | Heartbeat ACK | 心跳确认 |
-
-#### 7.3.3 Identify Payload
-
-```json
-{
-  "op": 2,
-  "d": {
-    "token": {
-      "appId": "xxx",
-      "token": "secret"
-    },
-    "intents": 4096,
-    "properties": {
-      "$os": "linux",
-      "$browser": "lingguard",
-      "$device": "lingguard"
-    }
-  }
-}
-```
-
-### 7.4 发送私聊消息
-
-```
-POST https://api.sgroup.qq.com/v2/users/{openid}/messages
-Authorization: Bot {appId}.{secret}
-Content-Type: application/json
-
-{
-  "content": "Hello!",
-  "msg_type": 0
-}
-```
-
-### 7.5 接收消息事件
-
-```json
-{
-  "op": 0,
-  "s": 1,
-  "t": "C2C_MESSAGE_CREATE",
-  "d": {
-    "id": "xxx",
-    "content": "你好",
-    "timestamp": "2024-01-01T00:00:00+08:00",
-    "author": {
-      "id": "user_openid",
-      "username": "用户名"
-    }
-  }
-}
-```
-
-### 7.6 Intents 说明
-
-| Intent | 值 | 说明 |
-|--------|-----|------|
-| GUILD_MESSAGES | 1 << 9 | 频道消息 |
-| DIRECT_MESSAGE | 1 << 12 | 私聊消息 |
-| PUBLIC_MESSAGES | 1 << 30 | 公域消息 |
+获取任务执行事件的 SSE 流。
 
 ---
 
-## 8. 错误处理
+#### GET /v1/tasks
 
-### 8.1 错误响应格式
+列出任务。
+
+---
+
+## 实现状态
+
+| API | 端点 | 状态 |
+|-----|------|------|
+| Chat | `POST /v1/agent/chat` | ✅ |
+| Session | `GET /v1/sessions` | ✅ |
+| Session | `GET /v1/sessions/{id}` | ✅ |
+| Session | `DELETE /v1/sessions/{id}` | ✅ |
+| Session | `POST /v1/sessions/{id}/clear` | ✅ |
+| Task | `POST /v1/tasks` | ✅ |
+| Task | `GET /v1/tasks/{id}` | ✅ |
+| Task | `DELETE /v1/tasks/{id}` | ✅ |
+| Task | `GET /v1/tasks/{id}/events` | ✅ |
+| Task | `GET /v1/tasks` | ✅ |
+
+---
+
+## 错误响应
 
 ```json
 {
   "error": {
-    "type": "invalid_request_error",
-    "message": "Invalid API key",
-    "code": "invalid_api_key"
+    "code": "session_not_found",
+    "message": "会话不存在"
   }
 }
 ```
 
-### 8.2 常见错误码
-
-| HTTP 状态码 | 错误类型 | 说明 |
-|-------------|----------|------|
-| 400 | invalid_request_error | 请求参数错误 |
-| 401 | authentication_error | 认证失败 |
-| 403 | permission_error | 权限不足 |
-| 404 | not_found_error | 资源不存在 |
-| 429 | rate_limit_error | 请求频率限制 |
-| 500 | api_error | 服务器内部错误 |
-| 503 | overloaded_error | 服务过载 |
-
----
-
-## 9. Go SDK 使用示例
-
-### 9.1 使用 net/http 发送请求
-
-```go
-package main
-
-import (
-    "bytes"
-    "encoding/json"
-    "fmt"
-    "io"
-    "net/http"
-)
-
-type ChatRequest struct {
-    Model    string    `json:"model"`
-    Messages []Message `json:"messages"`
-    Stream   bool      `json:"stream"`
-}
-
-type Message struct {
-    Role    string `json:"role"`
-    Content string `json:"content"`
-}
-
-type ChatResponse struct {
-    ID      string `json:"id"`
-    Model   string `json:"model"`
-    Choices []struct {
-        Message Message `json:"message"`
-    } `json:"choices"`
-}
-
-func main() {
-    req := ChatRequest{
-        Model: "glm-5",
-        Messages: []Message{
-            {Role: "user", Content: "Hello!"},
-        },
-        Stream: false,
-    }
-
-    body, _ := json.Marshal(req)
-
-    httpReq, _ := http.NewRequest("POST",
-        "https://open.bigmodel.cn/api/anthropic/chat/completions",
-        bytes.NewReader(body))
-    httpReq.Header.Set("Content-Type", "application/json")
-    httpReq.Header.Set("Authorization", "Bearer xxx.xxx")
-
-    resp, err := http.DefaultClient.Do(httpReq)
-    if err != nil {
-        panic(err)
-    }
-    defer resp.Body.Close()
-
-    respBody, _ := io.ReadAll(resp.Body)
-
-    var chatResp ChatResponse
-    json.Unmarshal(respBody, &chatResp)
-
-    fmt.Println(chatResp.Choices[0].Message.Content)
-}
-```
-
-### 9.2 使用 Provider Registry 自动匹配
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-
-    "github.com/lingguard/internal/config"
-    "github.com/lingguard/internal/providers"
-    "github.com/lingguard/pkg/llm"
-)
-
-func main() {
-    // 加载配置
-    cfg, _ := config.Load("configs/config.json")
-
-    // 创建 Provider 注册表
-    registry := providers.NewRegistry()
-    registry.InitFromConfig(cfg)
-
-    // 自动匹配 Provider（返回 Provider 和 Spec）
-    provider, spec := registry.MatchProvider("glm")
-    if provider == nil {
-        panic("provider not found")
-    }
-
-    fmt.Printf("Provider: %s (%s)\n", spec.DisplayName, spec.Name)
-
-    // 调用 LLM
-    req := &llm.Request{
-        Model: provider.Model(),
-        Messages: []llm.Message{
-            {Role: "user", Content: "Hello!"},
-        },
-    }
-
-    resp, err := provider.Complete(context.Background(), req)
-    if err != nil {
-        panic(err)
-    }
-
-    fmt.Println(resp.GetContent())
-}
-```
+| HTTP 状态码 | 错误码 | 说明 |
+|------------|--------|------|
+| 400 | `invalid_request` | 请求参数错误 |
+| 401 | `unauthorized` | Token 无效或过期 |
+| 404 | `session_not_found` | 会话不存在 |
+| 404 | `task_not_found` | 任务不存在 |
+| 409 | `session_busy` | 会话正在处理其他请求 |
+| 429 | `rate_limit_exceeded` | 请求频率超限 |
+| 500 | `internal_error` | 服务器内部错误 |
+| 503 | `provider_error` | LLM 服务不可用 |
 
 ---
 
-## 10. 配置参考
+## 最佳实践
 
-### 10.1 简化配置（推荐）
+### Session ID 设计
 
-使用 ProviderSpec 默认值，只需配置 apiKey：
+推荐格式：`{source}-{user_id}-{device_id}`
 
-```json
-{
-  "providers": {
-    "deepseek": {
-      "apiKey": "sk-xxx"
-    },
-    "qwen": {
-      "apiKey": "sk-xxx"
-    },
-    "openrouter": {
-      "apiKey": "sk-or-v1-xxx",
-      "model": "anthropic/claude-opus-4"
-    }
-  },
-  "agents": {
-    "workspace": "~/.lingguard/workspace",
-    "provider": "openrouter",
-    "maxToolIterations": 20,
-    "memoryWindow": 50,
-    "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。",
-    "memory": {
-      "enabled": true,
-      "recentDays": 3
+```javascript
+const sessionId = `app-${userId}-${deviceId}`;
+// 结果: app-user123-device456
+```
+
+### 错误重试
+
+```javascript
+async function chatWithRetry(message, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await chat(message);
+    } catch (error) {
+      if (!error.isRetryable) throw error;
+      await sleep(Math.pow(2, i) * 1000);
     }
   }
 }
 ```
 
-### 10.2 完整配置（覆盖默认值）
+---
 
-```json
-{
-  "providers": {
-    "glm": {
-      "apiKey": "xxx.xxx",
-      "apiBase": "https://open.bigmodel.cn/api/anthropic",
-      "model": "glm-5"
-    },
-    "minimax": {
-      "apiKey": "xxx",
-      "apiBase": "https://api.minimaxi.com/anthropic",
-      "model": "MiniMax-M2.5"
-    }
-  },
-  "agents": {
-    "workspace": "~/.lingguard/workspace",
-    "provider": "glm",
-    "maxToolIterations": 20,
-    "memoryWindow": 50,
-    "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。",
-    "memory": {
-      "enabled": true,
-      "recentDays": 3,
-      "maxHistoryLines": 1000
-    }
-  }
-}
+## 路由总览
+
 ```
+/v1/*                              # Agent API (对外，需认证)
+├── GET  /health                   # 健康检查
+├── POST /agent/chat               # 对话
+├── GET  /sessions                 # 会话列表
+├── GET  /sessions/:id             # 会话详情
+├── DELETE /sessions/:id           # 删除会话
+├── POST /sessions/:id/clear       # 清空历史
+├── POST /tasks                    # 创建任务
+├── GET  /tasks                    # 任务列表
+├── GET  /tasks/:id                # 任务状态
+├── DELETE /tasks/:id              # 删除任务
+└── GET  /tasks/:id/events         # SSE 事件流
 
-### 10.3 配置字段说明
+/_internal/*                       # 内部 WebUI API (仅供本地访问)
+├── /crons/*                       # 定时任务管理
+│   ├── GET    /                   # 列出定时任务
+│   ├── DELETE /:id                # 删除定时任务
+│   ├── GET    /stats              # 统计信息
+│   └── GET    /events             # SSE 事件流
+├── /traces/*                      # 追踪管理
+│   ├── GET    /                   # 列出追踪
+│   ├── GET    /stats              # 统计信息
+│   ├── GET    /:id                # 追踪详情
+│   ├── GET    /:id/spans          # 追踪 Spans
+│   ├── DELETE /:id                # 删除追踪
+│   ├── DELETE /cleanup            # 清理旧追踪
+│   ├── GET    /spans/:id          # Span 详情
+│   └── GET    /events             # SSE 事件流
+└── /webchat/*                     # WebChat 会话管理
+    ├── GET    /sessions           # 会话列表
+    ├── POST   /sessions           # 创建会话
+    ├── GET    /session            # 获取会话
+    └── DELETE /session            # 删除会话
 
-**Provider 配置：**
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| apiKey | string | ✅ | API 密钥 |
-| apiBase | string | 否 | 覆盖默认 API Base（支持 Anthropic 兼容端点） |
-| model | string | 否 | 覆盖默认模型 |
-
-**Agent 配置：**
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| workspace | string | 工作空间目录 |
-| provider | string | 默认 Provider 名称 |
-| maxToolIterations | int | 最大工具调用迭代次数 |
-| memoryWindow | int | 历史消息窗口大小 |
-| systemPrompt | string | 系统提示词 |
-| memory.enabled | bool | 是否启用持久化记忆 |
-| memory.recentDays | int | 加载最近几天的日志 |
-| memory.maxHistoryLines | int | 历史记录最大行数 |
-
-### 10.4 配置加载优先级
-
-| 优先级 | 来源 | 路径 |
-|--------|------|------|
-| 1 | 环境变量 | `$LINGGUARD_CONFIG` |
-| 2 | 当前目录 | `./config.json` |
-| 3 | 用户目录 | `~/.lingguard/config.json` |
+/ws/chat                           # WebSocket
+```
 
 ---
 
-## 11. 定时任务 (Cron)
-
-LingGuard 支持定时任务功能，可以按计划自动执行 Agent 任务。
-
-### 11.1 CLI 命令
+## 快速测试
 
 ```bash
-# 列出所有任务
-lingguard cron list
-lingguard cron list --all  # 包含已禁用的任务
+# 配置
+export API_URL="http://127.0.0.1:18989"
+export TOKEN="your-token"
 
-# 添加任务
-lingguard cron add <name> <schedule> <message>
+# 对话
+curl -X POST $API_URL/v1/agent/chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "你好"}'
 
-# 删除任务
-lingguard cron remove <job-id>
+# 流式对话
+curl -X POST $API_URL/v1/agent/chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "你好", "stream": true}'
 
-# 启用/禁用任务
-lingguard cron enable <job-id>
-lingguard cron disable <job-id>
+# 创建任务
+curl -X POST $API_URL/v1/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "分析代码"}'
 
-# 手动执行任务
-lingguard cron run <job-id>
-lingguard cron run <job-id> --force  # 强制执行已禁用的任务
-
-# 查看服务状态
-lingguard cron status
+# 查询任务
+curl $API_URL/v1/tasks/task-abc123 \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-### 11.2 调度格式
+---
 
-支持三种调度格式：
+## 配置说明
 
-| 格式 | 示例 | 说明 |
-|------|------|------|
-| `every:<duration>` | `every:1h` | 重复执行，间隔 1 小时 |
-| `at:<datetime>` | `at:2024-12-25 09:00` | 一次性任务，指定时间执行 |
-| `cron:<expr>` | `cron:0 9 * * *` | Cron 表达式，每天 9:00 执行 |
-
-**持续时间格式：**
-- `30s` - 30 秒
-- `5m` - 5 分钟
-- `1h` - 1 小时
-- `24h` - 24 小时
-
-**Cron 表达式：**
-```
-分 时 日 月 周
-*  *  *  *  *
-
-示例:
-0 9 * * *      # 每天 9:00
-*/30 * * * *   # 每 30 分钟
-0 18 * * 1-5   # 周一到周五 18:00
-```
-
-### 11.3 时区支持
-
-使用 `--tz` 参数指定 cron 任务的时区：
-
-```bash
-# 纽约时间每天 9:00
-lingguard cron add "NYC Morning" "cron:0 9 * * *" "Good morning!" --tz "America/New_York"
-
-# 东京时间每天 18:00
-lingguard cron add "Tokyo Evening" "cron:0 18 * * *" "Good evening!" --tz "Asia/Tokyo"
-
-# 上海时间每周一 9:30
-lingguard cron add "周一例会" "cron:30 9 * * 1" "周一例会提醒" --tz "Asia/Shanghai"
-```
-
-**常用时区：**
-
-| 时区 | 标识符 |
-|------|--------|
-| 中国 | `Asia/Shanghai` 或 `Asia/Chongqing` |
-| 日本 | `Asia/Tokyo` |
-| 纽约 | `America/New_York` |
-| 洛杉矶 | `America/Los_Angeles` |
-| 伦敦 | `Europe/London` |
-| UTC | `UTC` |
-
-### 11.4 任务投递选项
-
-添加任务时可以指定将响应投递到消息渠道：
-
-```bash
-# 投递到飞书
-lingguard cron add "Daily Report" "cron:0 9 * * *" "Generate daily report" \
-  --deliver --channel feishu --to ou_xxx
-
-# 带时区投递
-lingguard cron add "NYC Report" "cron:0 9 * * *" "Morning report" \
-  --tz "America/New_York" --deliver --channel feishu --to ou_xxx
-```
-
-### 11.5 任务存储
-
-任务数据存储在 JSON 文件中：
-
-```
-~/.lingguard/cron/jobs.json
-```
-
-存储格式：
+### 服务器配置
 
 ```json
 {
-  "version": 1,
-  "jobs": [
-    {
-      "id": "abc123",
-      "name": "Daily Report",
-      "enabled": true,
-      "schedule": {
-        "kind": "cron",
-        "expr": "0 9 * * *",
-        "tz": "America/New_York"
-      },
-      "payload": {
-        "kind": "agent_turn",
-        "message": "Generate daily report",
-        "deliver": true,
-        "channel": "feishu",
-        "to": "ou_xxx"
-      },
-      "state": {
-        "nextRunAtMs": 1704067200000,
-        "lastRunAtMs": 1703980800000,
-        "lastStatus": "ok"
-      }
-    }
-  ]
-}
-```
-
-### 11.6 配置
-
-在 `config.json` 中配置定时任务：
-
-```json
-{
-  "cron": {
+  "server": {
     "enabled": true,
-    "storePath": "~/.lingguard/cron/jobs.json"
-  }
-}
-```
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| enabled | bool | 是否启用定时任务服务 |
-| storePath | string | 任务存储文件路径 |
-
----
-
-## 12. MCP (Model Context Protocol)
-
-LingGuard 支持 [MCP](https://modelcontextprotocol.io/) - 连接外部工具服务器并将其作为原生 Agent 工具使用。
-
-### 12.1 配置格式
-
-配置格式与 Claude Desktop / Cursor 兼容，可直接复制任何 MCP 服务器的 README 中的配置：
-
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "filesystem": {
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    "host": "127.0.0.1",
+    "port": 18989,
+    "cors": {
+      "allowedOrigins": ["*"]
+    },
+    "api": {
+      "enabled": true,
+      "auth": {
+        "type": "token",
+        "tokens": ["your-secret-token"]
       },
-      "fetch": {
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-fetch"]
+      "rateLimit": {
+        "enabled": false,
+        "requestsPer": 60,
+        "burst": 10
+      }
+    },
+    "webui": {
+      "taskboard": {
+        "dbPath": "~/.lingguard/webui/taskboard.db",
+        "trackUserRequests": true,
+        "syncSubagent": true,
+        "syncCron": true
+      },
+      "trace": {
+        "enabled": true,
+        "dbPath": "~/.lingguard/webui/trace.db"
+      },
+      "webchat": {
+        "maxConnections": 100,
+        "maxConnectionsPerIP": 5,
+        "readLimitKB": 512,
+        "writeTimeoutSec": 10,
+        "readTimeoutSec": 60,
+        "heartbeatSec": 30
       }
     }
   }
 }
 ```
 
-### 12.2 传输模式
-
-| 模式 | 配置 | 示例 |
-|------|------|------|
-| **Stdio** | `command` + `args` | 本地进程，如 `npx` / `uvx` |
-| **HTTP/SSE** | `url` | 远程端点，SSE 连接 |
-
-### 12.3 MCPServerConfig 配置项
+### 配置字段说明
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| command | string | Stdio 模式：执行的命令 (e.g. "npx") |
-| args | []string | Stdio 模式：命令参数 |
-| env | map | Stdio 模式：额外的环境变量 |
-| url | string | HTTP 模式：Streamable HTTP 端点 URL (开发中) |
+| `server.enabled` | bool | 是否启用服务器 |
+| `server.host` | string | 监听地址，默认 127.0.0.1 |
+| `server.port` | int | 监听端口，默认 8080 |
+| `server.cors` | object | CORS 配置 |
+| `server.api` | object | Agent API 配置 (/v1/*) |
+| `server.webui` | object | 内部 WebUI 配置 (/_internal/*) |
 
-### 12.4 MCP 工具命名
+### API 配置
 
-MCP 工具自动注册为 `mcp_{server_name}_{tool_name}` 格式：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `api.enabled` | bool | 是否启用 Agent API |
+| `api.auth.type` | string | 认证类型：token / none |
+| `api.auth.tokens` | []string | 有效的 Token 列表 |
+| `api.rateLimit.enabled` | bool | 是否启用限流 |
+| `api.rateLimit.requestsPer` | int | 每分钟请求数限制 |
+| `api.rateLimit.burst` | int | 突发容量 |
 
-```
-原始工具名: read_file
-服务器名: filesystem
-注册名: mcp_filesystem_read_file
-```
+### WebUI 配置
 
-### 12.5 示例：HTTP MCP 服务器
-
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "remote-mcp": {
-        "url": "https://mcp.example.com/sse"
-      }
-    }
-  }
-}
-```
-
-### 12.6 示例：文件系统 MCP
-
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "filesystem": {
-        "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"],
-        "env": {
-          "NODE_OPTIONS": "--max-old-space-size=4096"
-        }
-      }
-    }
-  }
-}
-```
-
-启动后，Agent 可使用以下工具：
-- `mcp_filesystem_read_file` - 读取文件
-- `mcp_filesystem_write_file` - 写入文件
-- `mcp_filesystem_list_directory` - 列出目录
-- `mcp_filesystem_search_files` - 搜索文件
-
-### 12.7 常用 MCP 服务器
-
-| 服务器 | 说明 | 安装命令 |
-|--------|------|----------|
-| server-filesystem | 文件系统访问 | `npx -y @modelcontextprotocol/server-filesystem` |
-| server-fetch | HTTP 请求 | `npx -y @modelcontextprotocol/server-fetch` |
-| server-sqlite | SQLite 数据库 | `npx -y @modelcontextprotocol/server-sqlite` |
-| server-github | GitHub API | `npx -y @modelcontextprotocol/server-github` |
-
-更多 MCP 服务器请参考：[MCP Servers Directory](https://github.com/modelcontextprotocol/servers)
-
----
-
-## 13. 参考资料
-
-- [OpenAI API Reference](https://platform.openai.com/docs/api-reference)
-- [Anthropic API Reference](https://docs.anthropic.com/en/api)
-- [智谱 AI API](https://open.bigmodel.cn/dev/api)
-- [飞书开放平台](https://open.feishu.cn/document/)
-- [QQ 机器人开放平台](https://bot.q.qq.com/wiki/)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `webui.taskboard.dbPath` | string | 任务看板数据库路径 |
+| `webui.taskboard.trackUserRequests` | bool | 追踪用户请求 |
+| `webui.trace.enabled` | bool | 是否启用 LLM 追踪 |
+| `webui.trace.dbPath` | string | 追踪数据库路径 |
+| `webui.webchat.maxConnections` | int | 最大 WebSocket 连接数 |
+| `webui.webchat.maxConnectionsPerIP` | int | 每 IP 最大连接数 |
