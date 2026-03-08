@@ -74,6 +74,10 @@
       "appSecret": "xxx"
     }
   },
+  "heartbeat": {
+    "enabled": true,
+    "interval": 30
+  },
   "tools": {
     "restrictToWorkspace": true,
     "websearch": {
