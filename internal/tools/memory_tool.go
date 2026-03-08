@@ -132,11 +132,13 @@ func (t *MemoryTool) Parameters() map[string]interface{} {
 // Execute 执行工具
 func (t *MemoryTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
-		Action   string `json:"action"`
-		Category string `json:"category"`
-		Fact     string `json:"fact"`
-		Query    string `json:"query"`
-		Event    string `json:"event"`
+		Action     string `json:"action"`
+		Category   string `json:"category"`
+		Fact       string `json:"fact"`
+		Query      string `json:"query"`
+		Event      string `json:"event"`
+		ArchiveOld bool   `json:"archiveOld"` // 是否只归档旧记忆（超过滑动窗口）
+		RecentDays int    `json:"recentDays"` // 滑动窗口天数（用于 archiveOld）
 	}
 
 	if err := json.Unmarshal(args, &params); err != nil {
@@ -153,7 +155,7 @@ func (t *MemoryTool) Execute(ctx context.Context, args json.RawMessage) (string,
 	case "context":
 		return t.actionContext()
 	case "refine":
-		return t.actionRefine(ctx)
+		return t.actionRefine(ctx, params.ArchiveOld, params.RecentDays)
 	default:
 		return "", fmt.Errorf("unknown action: %s", params.Action)
 	}
@@ -269,23 +271,44 @@ func (t *MemoryTool) actionContext() (string, error) {
 }
 
 // actionRefine 执行记忆提炼
-func (t *MemoryTool) actionRefine(ctx context.Context) (string, error) {
+// archiveOld: 是否只归档超过滑动窗口的旧记忆
+// recentDays: 滑动窗口天数（仅 archiveOld=true 时有效）
+func (t *MemoryTool) actionRefine(ctx context.Context, archiveOld bool, recentDays int) (string, error) {
 	if t.refiner == nil {
 		// 如果没有配置提炼器，创建一个默认的
 		t.refiner = memory.NewRefiner(t.store, t.hybridStore, nil)
 	}
 
-	result, err := t.refiner.Refine(ctx)
+	var result *memory.RefineResult
+	var err error
+
+	if archiveOld {
+		// 归档模式：只处理超过滑动窗口的旧记忆
+		result, err = t.refiner.ArchiveOld(ctx, recentDays)
+	} else {
+		// 全量提炼模式
+		result, err = t.refiner.Refine(ctx)
+	}
+
 	if err != nil {
 		return "", fmt.Errorf("failed to refine memory: %w", err)
 	}
 
 	var output strings.Builder
-	output.WriteString("## Memory Refinement Complete\n\n")
+
+	if archiveOld {
+		output.WriteString("## Memory Archive Complete\n\n")
+	} else {
+		output.WriteString("## Memory Refinement Complete\n\n")
+	}
+
 	output.WriteString(fmt.Sprintf("- **Total entries**: %d\n", result.TotalEntries))
 	output.WriteString(fmt.Sprintf("- **Merged entries**: %d\n", result.MergedEntries))
 	output.WriteString(fmt.Sprintf("- **Removed duplicates**: %d\n", result.RemovedEntries))
-	output.WriteString(fmt.Sprintf("- **Duplicate groups found**: %d\n", result.DuplicateGroups))
+
+	if !archiveOld {
+		output.WriteString(fmt.Sprintf("- **Duplicate groups found**: %d\n", result.DuplicateGroups))
+	}
 
 	if result.BackupPath != "" {
 		output.WriteString(fmt.Sprintf("- **Backup saved to**: %s\n", result.BackupPath))
@@ -299,7 +322,11 @@ func (t *MemoryTool) actionRefine(ctx context.Context) (string, error) {
 	}
 
 	if result.RemovedEntries == 0 {
-		output.WriteString("\nNo duplicate entries found. Memory is already well-organized.\n")
+		if archiveOld {
+			output.WriteString("\nNo old entries to archive or no duplicates found.\n")
+		} else {
+			output.WriteString("\nNo duplicate entries found. Memory is already well-organized.\n")
+		}
 	}
 
 	return output.String(), nil

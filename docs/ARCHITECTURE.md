@@ -1424,89 +1424,116 @@ func (s *HybridStore) AddMemory(category, content string) error {
 }
 ```
 
-#### 4.6.8 记忆提炼 (Memory Refinement)
+#### 4.6.8 记忆提炼与归档 (Memory Refinement & Archive)
 
-记忆提炼功能用于定期清理和合并重复的记忆条目，保持记忆库的整洁。
+记忆提炼功能用于定期清理和归档超过滑动窗口的旧记忆，保持 MEMORY.md 的精简。
+
+**文件结构：**
+```
+~/.lingguard/memory/
+├── MEMORY.md          # 只保留 recentDays 窗口内的活跃记忆
+├── ARCHIVE.md         # 归档的历史记忆（压缩去重后）
+├── 2026-03-08.md      # 每日日志
+└── vectors.db         # 向量索引
+```
 
 **触发方式：**
-1. **手动触发**：通过 memory 工具调用 `{"action": "refine"}`
-2. **自动触发**：当条目数达到阈值时自动执行（可配置）
+通过 heartbeat 在凌晨定时执行（推荐），参见 `configs/HEARTBEAT.md`
 
 **提炼流程：**
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      记忆提炼流程                                │
+│                      记忆归档流程                                │
 ├─────────────────────────────────────────────────────────────────┤
 │  1. 读取 MEMORY.md                                              │
 │     └─ 解析所有条目（分类、内容、时间戳）                        │
 ├─────────────────────────────────────────────────────────────────┤
-│  2. 按分类分组                                                   │
-│     └─ User Preferences, Project Context, Important Facts...   │
+│  2. 分离条目（基于 recentDays 窗口）                             │
+│     ├─ 旧条目（超过窗口）→ 待归档                                │
+│     └─ 近期条目（窗口内）→ 保留在 MEMORY.md                      │
 ├─────────────────────────────────────────────────────────────────┤
-│  3. 相似度检测与去重                                            │
-│     ├─ 计算条目间相似度（关键词 40% + 字符级 60%）              │
-│     ├─ 相似度 >= 阈值的条目归为重复组                           │
-│     └─ 每组保留最新条目，删除其他重复                           │
+│  3. 旧条目去重合并                                              │
+│     ├─ 计算相似度（关键词 40% + 字符级 60%）                    │
+│     ├─ 相似度 >= 0.85 归为重复                                  │
+│     └─ 每组保留最新条目                                         │
 ├─────────────────────────────────────────────────────────────────┤
-│  4. 条目数限制                                                   │
-│     └─ 每分类超过 maxEntriesPerCategory 时删除最旧条目          │
+│  4. 合并到 ARCHIVE.md                                           │
+│     ├─ 读取现有 ARCHIVE.md                                      │
+│     ├─ 与新归档条目合并（再次去重）                              │
+│     └─ 写入 ARCHIVE.md                                          │
 ├─────────────────────────────────────────────────────────────────┤
-│  5. 备份与写入                                                   │
-│     ├─ 创建备份文件 MEMORY.backup.YYYYMMDD-HHMMSS.md           │
-│     └─ 写入新的 MEMORY.md                                       │
+│  5. 更新 MEMORY.md                                              │
+│     └─ 只包含窗口内的近期条目                                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**相似度算法：**
-```go
-// 综合评分 = 关键词相似度 × 0.4 + 字符级相似度 × 0.6 + 包含关系加分
-func calculateSimilarity(a, b string) float32 {
-    // 1. 关键词相似度（Jaccard）
-    keywordsA := extractKeywords(a)
-    keywordsB := extractKeywords(b)
-    keywordSim := jaccard(keywordsA, keywordsB)
+**归档效果示例：**
+```
+归档前 MEMORY.md (100条):
+  [2026-01-01] 我的项目叫 LingGuard      ← 超过3天，归档
+  [2026-01-02] 项目名称是 LingGuard      ← 超过3天，归档（与上一条合并）
+  ...
+  [2026-03-06] 我喜欢 Go 语言           ← 最近3天，保留
+  [2026-03-07] 使用 sqlite-vec          ← 最近3天，保留
+  [2026-03-08] 今天完成了提炼功能        ← 最近3天，保留
 
-    // 2. 字符级相似度（对中文更有效）
-    charSim := characterOverlap(a, b)
-
-    // 3. 包含关系加分
-    if strings.Contains(a, b) || strings.Contains(b, a) {
-        return min(keywordSim*0.4 + charSim*0.6 + 0.3, 1.0)
-    }
-    return keywordSim*0.4 + charSim*0.6
-}
+归档后:
+  MEMORY.md (15条): 只保留最近3天
+  ARCHIVE.md (+2条): 合并后的旧记忆
 ```
 
 **配置参数：**
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `enabled` | `true` | 是否启用提炼功能 |
-| `autoTrigger` | `false` | 是否自动触发（达到阈值时） |
-| `threshold` | `50` | 自动触发的条目数阈值 |
 | `similarityThreshold` | `0.85` | 判定为重复的相似度阈值 |
 | `keepBackup` | `true` | 是否保留备份文件 |
 | `maxEntriesPerCategory` | `20` | 每分类最大条目数 |
 
+**触发方式：**
+1. **手动触发**：通过 memory 工具调用 `{"action": "refine"}`
+2. **定时归档**：通过 heartbeat 在凌晨执行（推荐）
+
+**Heartbeat 定时归档（推荐）：**
+```markdown
+# configs/HEARTBEAT.md
+
+## 每日记忆提炼（凌晨 2:00 执行）
+
+当前时间如果在 2:00-2:30 之间，执行记忆归档提炼：
+{"action": "refine", "archiveOld": true, "recentDays": 3}
+
+这会合并超过 3 天滑动窗口的旧记忆，去除重复条目。
+```
+
+**归档模式 vs 全量模式：**
+| 模式 | 参数 | 说明 |
+|------|------|------|
+| 归档模式 | `archiveOld=true, recentDays=3` | 只处理超过窗口的旧条目，保留近期条目不变 |
+| 全量模式 | `archiveOld=false` | 处理全部条目，包括近期条目 |
+
 **使用示例：**
 ```json
-// Agent 调用
+// 归档模式（推荐用于定时任务）
+{"action": "refine", "archiveOld": true, "recentDays": 3}
+
+// 全量模式（手动清理）
 {"action": "refine"}
 ```
 
 **输出示例：**
 ```
-## Memory Refinement Complete
+## Memory Archive Complete
 
 - **Total entries**: 45
-- **Merged entries**: 38
-- **Removed duplicates**: 7
-- **Duplicate groups found**: 3
-- **Backup saved to**: ~/.lingguard/memory/MEMORY.backup.20260308-174500.md
+- **Merged entries**: 35
+- **Removed duplicates**: 10
+- **Backup saved to**: ~/.lingguard/memory/MEMORY.backup.20260308-020000.md
 
 ### Changes Made
-- 备份已保存到: ~/.lingguard/memory/MEMORY.backup.20260308-174500.md
-- [Project Context] 合并 3 条相似条目: 我的项目叫 LingGuard
-- [User Preferences] 合并 2 条相似条目: 我喜欢用 Go 语言
+- 备份已保存到: ~/.lingguard/memory/MEMORY.backup.20260308-020000.md
+- 归档了 3 天前的旧记忆，合并 10 条重复条目
+- 保留最近 3 天的 15 条条目不变
 ```
 
 #### 4.6.9 每日日志清理
@@ -1527,7 +1554,66 @@ func calculateSimilarity(a, b string) float32 {
 }
 ```
 
-#### 4.6.10 配置示例
+#### 4.6.10 会话压缩
+
+当会话消息数超过阈值时，自动压缩早期消息为摘要，保留最近消息不变。
+
+**触发流程：**
+```
+会话消息 ≥ 50 条
+      │
+      ▼
+┌─────────────────────────────────────────┐
+│ 分离消息:                                │
+│   前 45 条 → 发送给 LLM 生成摘要         │
+│   后 5 条  → 保持原样                    │
+└─────────────────────────────────────────┘
+      │
+      ▼
+新会话结构:
+   [摘要消息: 早期对话要点] + [原始消息 46-50]
+      │
+      ▼
+继续积累新消息，到 50 条后再次触发
+```
+
+**配置参数：**
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `enabled` | `true` | 是否启用会话压缩 |
+| `threshold` | `50` | 触发压缩的消息数阈值 |
+| `keepRecent` | `5` | 保留最近N条原始消息 |
+| `summaryMaxLen` | `500` | 摘要最大字符数 |
+| `summaryPrompt` | (默认) | 自定义摘要提示词 |
+
+**配置示例：**
+```json
+{
+  "agents": {
+    "sessionCompress": {
+      "enabled": true,
+      "threshold": 50,
+      "keepRecent": 5,
+      "summaryMaxLen": 500
+    }
+  }
+}
+```
+
+**压缩效果：**
+```
+压缩前: 50 条原始消息
+压缩后: 1 条摘要 + 5 条原始消息 = 6 条
+节省: 88% 的消息数
+
+再次积累到 50 条后:
+  1 条旧摘要 + 44 条新消息 + 5 条原始消息
+        │
+        ▼ 触发压缩
+  1 条合并摘要 + 5 条原始消息
+```
+
+#### 4.6.11 配置示例
 
 ```json
 {
@@ -1544,8 +1630,6 @@ func calculateSimilarity(a, b string) float32 {
       "captureMaxChars": 500,
       "refine": {
         "enabled": true,
-        "autoTrigger": false,
-        "threshold": 50,
         "similarityThreshold": 0.85,
         "keepBackup": true,
         "maxEntriesPerCategory": 20
@@ -1583,6 +1667,7 @@ func calculateSimilarity(a, b string) float32 {
 | `pkg/memory/context_builder.go` | 上下文构建、语义搜索 |
 | `pkg/memory/vector_store.go` | 向量索引（sqlite-vec） |
 | `pkg/memory/refiner.go` | 记忆提炼、去重合并、备份 |
+| `internal/session/compressor.go` | 会话压缩、摘要生成 |
 | `pkg/memory/file_store.go` | 文件存储、每日日志清理 |
 | `internal/agent/agent.go` | 自动召回、自动捕获逻辑 |
 | `internal/tools/memory_tool.go` | memory 工具实现 |

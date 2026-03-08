@@ -71,17 +71,27 @@ type ProviderConfig struct {
 
 // AgentsConfig 代理配置
 type AgentsConfig struct {
-	Workspace          string        `json:"workspace"`
-	Provider           string        `json:"provider"`                     // 使用的 Provider 名称（文本）
-	MultimodalProvider string        `json:"multimodalProvider,omitempty"` // 多模态 Provider 名称（图片/视频），如未设置则使用 Provider
-	MaxToolIterations  int           `json:"maxToolIterations"`            // 最大工具迭代次数
-	MemoryWindow       int           `json:"memoryWindow"`                 // 历史消息窗口大小
-	SystemPrompt       string        `json:"systemPrompt"`
-	MemoryConfig       *MemoryConfig `json:"memory,omitempty"`             // 记忆系统配置
-	SessionLockTimeout int           `json:"sessionLockTimeout,omitempty"` // 会话锁超时（分钟），默认 10
-	Soul               *SoulConfig   `json:"soul,omitempty"`               // Soul 人格引导配置
+	Workspace          string                 `json:"workspace"`
+	Provider           string                 `json:"provider"`                     // 使用的 Provider 名称（文本）
+	MultimodalProvider string                 `json:"multimodalProvider,omitempty"` // 多模态 Provider 名称（图片/视频），如未设置则使用 Provider
+	MaxToolIterations  int                    `json:"maxToolIterations"`            // 最大工具迭代次数
+	MemoryWindow       int                    `json:"memoryWindow"`                 // 历史消息窗口大小
+	SystemPrompt       string                 `json:"systemPrompt"`
+	MemoryConfig       *MemoryConfig          `json:"memory,omitempty"`             // 记忆系统配置
+	SessionLockTimeout int                    `json:"sessionLockTimeout,omitempty"` // 会话锁超时（分钟），默认 10
+	Soul               *SoulConfig            `json:"soul,omitempty"`               // Soul 人格引导配置
+	SessionCompress    *SessionCompressConfig `json:"sessionCompress,omitempty"`    // 会话压缩配置
 	// 注：Temperature 和 MaxTokens 从 Provider 配置中获取，避免重复
 	// 注：Skills 目录固定在 ~/.lingguard/skills/
+}
+
+// SessionCompressConfig 会话压缩配置
+type SessionCompressConfig struct {
+	Enabled       bool   `json:"enabled,omitempty"`       // 是否启用会话压缩
+	Threshold     int    `json:"threshold,omitempty"`     // 触发压缩的消息数阈值，默认 50
+	KeepRecent    int    `json:"keepRecent,omitempty"`    // 保留最近N条原始消息，默认 5
+	SummaryMaxLen int    `json:"summaryMaxLen,omitempty"` // 摘要最大字符数，默认 500
+	SummaryPrompt string `json:"summaryPrompt,omitempty"` // 自定义摘要提示词
 }
 
 // SoulConfig Soul 人格引导配置
@@ -113,8 +123,8 @@ type MemoryConfig struct {
 // RefineConfig 记忆提炼配置
 type RefineConfig struct {
 	Enabled               bool    `json:"enabled,omitempty"`               // 是否启用提炼功能
-	AutoTrigger           bool    `json:"autoTrigger,omitempty"`           // 是否自动触发提炼
-	Threshold             int     `json:"threshold,omitempty"`             // 触发阈值（总条目数超过此值触发），默认 50
+	AutoTrigger           bool    `json:"autoTrigger,omitempty"`           // [已废弃] 自动触发已移至 heartbeat 定时任务
+	Threshold             int     `json:"threshold,omitempty"`             // [已废弃] 触发阈值已移至 heartbeat
 	SimilarityThreshold   float32 `json:"similarityThreshold,omitempty"`   // 相似度阈值，默认 0.85
 	KeepBackup            bool    `json:"keepBackup,omitempty"`            // 是否保留备份，默认 true
 	MaxEntriesPerCategory int     `json:"maxEntriesPerCategory,omitempty"` // 每分类最大条目数，默认 20

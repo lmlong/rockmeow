@@ -72,10 +72,11 @@ type Agent struct {
 	memoryStore        *memory.FileStore      // 文件持久化存储（参考 nanobot）
 	hybridStore        *memory.HybridStore    // 混合存储（文件+向量），可选
 	memoryBuilder      *memory.ContextBuilder // 记忆上下文构建器
-	memoryRefiner      *memory.Refiner        // 记忆提炼器，	traceCollector     trace.Collector        // 追踪采集器，可选
+	memoryRefiner      *memory.Refiner        // 记忆提炼器
+	sessionCompressor  *session.Compressor    // 会话压缩器
+	traceCollector     trace.Collector        // 追踪采集器，可选
 	taskboard          *taskboard.Service     // 定时任务看板服务（仅用于定时任务跟踪和分析）
 	cronWrapper        CronWrapper            // 定时任务服务包装器
-	traceCollector     trace.Collector        // 追踪采集器，可选
 	sessionLockTimeout time.Duration          // 会话锁超时时间
 	steerMgr           *steerManager          // Steer 模式管理器
 	profileStore       *memory.ProfileStore   // 用户档案存储
@@ -182,6 +183,15 @@ func NewAgentWithMultimodalAndConfig(cfg *config.AgentsConfig, provider provider
 		}
 	}
 
+	// 初始化会话压缩器
+	var sessionCompressor *session.Compressor
+	if cfg.SessionCompress != nil && cfg.SessionCompress.Enabled {
+		sessionCompressor = session.NewCompressor(provider, cfg.SessionCompress)
+		logger.Info("Session compressor initialized",
+			"threshold", cfg.SessionCompress.Threshold,
+			"keepRecent", cfg.SessionCompress.KeepRecent)
+	}
+
 	// 如果没有配置多模态 provider，使用主 provider
 	if multimodalProvider == nil {
 		multimodalProvider = provider
@@ -199,6 +209,7 @@ func NewAgentWithMultimodalAndConfig(cfg *config.AgentsConfig, provider provider
 		hybridStore:         hybridStore,
 		memoryBuilder:       memBuilder,
 		memoryRefiner:       refiner,
+		sessionCompressor:   sessionCompressor,
 		sessionDynamicTools: make(map[string]*sessionDynamicToolsInfo),
 		profileStore:        memory.NewProfileStore(""),
 	}

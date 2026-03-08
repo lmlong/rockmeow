@@ -35,6 +35,12 @@
     "maxToolIterations": 50,
     "memoryWindow": 50,
     "systemPrompt": "你是灵侍，一个乐于助人的 AI 助手。你可以使用工具帮助用户完成各种任务。\n\n## 核心规则\n\n1. **工具描述包含完整的触发规则**，请仔细阅读 skill 和 task 工具的描述\n2. **加载 skill 后必须执行**，不要只返回文本说明\n3. **只有复杂编码任务才使用 subagent**，其他任务直接执行",
+    "sessionCompress": {
+      "enabled": true,
+      "threshold": 50,
+      "keepRecent": 5,
+      "summaryMaxLen": 500
+    },
     "memory": {
       "enabled": true,
       "path": "~/.lingguard/memory",
@@ -48,8 +54,6 @@
       "captureMaxChars": 500,
       "refine": {
         "enabled": true,
-        "autoTrigger": true,
-        "threshold": 50,
         "similarityThreshold": 0.85,
         "keepBackup": true,
         "maxEntriesPerCategory": 20

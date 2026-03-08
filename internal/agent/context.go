@@ -259,37 +259,40 @@ func (a *Agent) captureMemories(sessionID string, messages []llm.Message) {
 		logger.Debug("Auto-capture completed: no memories captured")
 	}
 
-	// 检查是否触发自动提炼
-	a.checkAutoRefine()
+	// 检查会话压缩
+	a.checkSessionCompress(sessionID)
 }
 
-// checkAutoRefine 检查并触发自动提炼
-func (a *Agent) checkAutoRefine() {
-	if a.memoryRefiner == nil {
+// checkSessionCompress 检查并执行会话压缩
+func (a *Agent) checkSessionCompress(sessionID string) {
+	if a.sessionCompressor == nil {
 		return
 	}
 
-	cfg := a.config.MemoryConfig.Refine
-	if cfg == nil || !cfg.Enabled || !cfg.AutoTrigger {
+	cfg := a.config.SessionCompress
+	if cfg == nil || !cfg.Enabled {
 		return
 	}
 
-	if a.memoryRefiner.ShouldTriggerRefine() {
-		logger.Info("Auto-refine triggered: threshold reached")
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	// 检查是否需要压缩
+	if !a.sessions.ShouldCompressSession(sessionID, a.sessionCompressor) {
+		return
+	}
 
-		result, err := a.memoryRefiner.Refine(ctx)
-		if err != nil {
-			logger.Warn("Auto-refine failed", "error", err)
-			return
-		}
+	logger.Info("Session compression triggered", "session", sessionID)
 
-		logger.Info("Auto-refine completed",
-			"total", result.TotalEntries,
-			"merged", result.MergedEntries,
-			"removed", result.RemovedEntries,
-			"backup", result.BackupPath)
+	result, err := a.sessions.CompressAndReplace(sessionID, a.sessionCompressor)
+	if err != nil {
+		logger.Warn("Session compression failed", "error", err)
+		return
+	}
+
+	if result.Compressed {
+		logger.Info("Session compressed",
+			"session", sessionID,
+			"original", result.OriginalCount,
+			"new", result.NewCount,
+			"summaryLen", len(result.Summary))
 	}
 }
 
