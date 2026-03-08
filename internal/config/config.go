@@ -408,7 +408,7 @@ func DefaultConfig() *Config {
 			},
 			SessionLockTimeout: 10, // 10 分钟
 			Soul: &SoulConfig{
-				Enabled: true,
+				Enabled: false,
 			},
 		},
 		Channels: ChannelsConfig{},
