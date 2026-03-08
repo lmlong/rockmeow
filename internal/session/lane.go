@@ -42,6 +42,8 @@ type StreamInjector interface {
 	// 用于 Agent 结束执行后取回未被处理的消息
 	DrainInjectionChannel(sessionID string) []InjectionMessage
 }
+
+// EnqueueResult 入队结
 // EnqueueResult 入队结果
 type EnqueueResult int
 
@@ -80,7 +82,37 @@ func (l *Lane) Enqueue(content string, media []string, callback EnqueueCallback)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// 检查 injector 是否正在执行
+	// 调试日志：记录执行状态
+	laneExecuting := l.isExecuting
+	var agentExecuting bool
+	if l.injector != nil {
+		agentExecuting = l.injector.IsExecuting(l.sessionID)
+	}
+	logger.Info("[Enqueue] State check", "session", l.sessionID, "laneExecuting", laneExecuting, "agentExecuting", agentExecuting)
+
+	// 检查 Lane 自身是否正在执行
+	if l.isExecuting && l.injector != nil {
+		// Lane 正在执行，等待 Agent 启动（最多等待 50ms）
+		// 这是为了解决 Lane.StartExecution() 和 Agent.runLoop() 之间的时序窗口
+		for i := 0; i < 5; i++ {
+			if l.injector.IsExecuting(l.sessionID) {
+				// Agent 已启动，尝试注入
+				if l.injector.InjectMessage(l.sessionID, content, media) {
+					logger.Info("Message steered into current execution", "session", l.sessionID)
+					return EnqueueSteered
+				}
+				logger.Warn("Injection failed, queuing", "session", l.sessionID)
+				break
+			}
+			logger.Debug("[Enqueue] Waiting for Agent to start", "session", l.sessionID, "attempt", i+1)
+			l.mu.Unlock()
+			time.Sleep(10 * time.Millisecond)
+			l.mu.Lock()
+		}
+		// Agent 未启动或注入失败，入队等待
+	}
+
+	// 检查 injector 是否正在执行（非 Lane 执行时的直接检查）
 	if l.injector != nil && l.injector.IsExecuting(l.sessionID) {
 		// 正在执行中，尝试直接注入（steer 模式）
 		if l.injector.InjectMessage(l.sessionID, content, media) {
@@ -152,6 +184,7 @@ func (l *Lane) StartExecution() (string, []string, int) {
 
 	// 标记为执行中
 	l.isExecuting = true
+	logger.Info("[Lane] Execution started", "session", l.sessionID, "queueLength", len(l.backlog))
 
 	if len(l.backlog) == 0 {
 		return "", nil, 0
@@ -172,7 +205,7 @@ func (l *Lane) EndExecution() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.isExecuting = false
-	logger.Debug("Lane execution ended", "session", l.sessionID, "remainingQueue", len(l.backlog))
+	logger.Info("[Lane] Execution ended", "session", l.sessionID, "remainingQueue", len(l.backlog))
 }
 
 // mergeMessages 合并多个消息为一个

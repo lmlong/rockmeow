@@ -392,8 +392,8 @@ func (c *WebChatChannel) readPump(conn *WebChatConnection) {
 			// 切换会话
 			c.switchSession(conn, msg.Content)
 		case "chat":
-			// 处理聊天消息
-			c.handleChatMessage(conn, msg.Content)
+			// 处理聊天消息（非阻塞，支持并发消息注入）
+			go c.handleChatMessage(conn, msg.Content)
 		default:
 			logger.Warn("Unknown message type", "type", msg.Type, "sessionId", conn.SessionID)
 		}

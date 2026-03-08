@@ -103,7 +103,7 @@ func (m *steerManager) setExecuting(sessionID string, executing bool) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	state.isExecuting = executing
-	logger.Debug("Steer state updated", "session", sessionID, "isExecuting", executing)
+	logger.Info("[Steer] Execution state changed", "session", sessionID, "isExecuting", executing)
 }
 
 // getInjectionChannel 获取注入通道
@@ -130,6 +130,8 @@ func (m *steerManager) DrainInjectionChannel(sessionID string) []InjectionMessag
 		}
 	}
 }
+
+// checkInjection 非阻塞检查是否有注入的消
 // checkInjection 非阻塞检查是否有注入的消息
 func (m *steerManager) checkInjection(sessionID string) *InjectionMessage {
 	state := m.getState(sessionID)

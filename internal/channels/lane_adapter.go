@@ -40,6 +40,13 @@ func (a *LaneAdapter) SetOnExecuting(callback func(sessionID string, messageCoun
 
 // HandleMessage 实现 MessageHandler 接口
 func (a *LaneAdapter) HandleMessage(ctx context.Context, msg *Message) (string, error) {
+	// 记录用户请求
+	contentPreview := msg.Content
+	if len(contentPreview) > 100 {
+		contentPreview = contentPreview[:100] + "..."
+	}
+	logger.Info("[UserRequest]", "session", msg.SessionID, "channel", msg.Channel, "content", contentPreview)
+
 	// 尝试注入或入队
 	result := a.laneManager.Enqueue(msg.SessionID, msg.Content, msg.Media, nil)
 
@@ -66,6 +73,13 @@ func (a *LaneAdapter) HandleMessage(ctx context.Context, msg *Message) (string, 
 
 // HandleMessageStream 实现 StreamingMessageHandler 接口
 func (a *LaneAdapter) HandleMessageStream(ctx context.Context, msg *Message, callback stream.StreamCallback) error {
+	// 记录用户请求
+	contentPreview := msg.Content
+	if len(contentPreview) > 100 {
+		contentPreview = contentPreview[:100] + "..."
+	}
+	logger.Info("[UserRequest]", "session", msg.SessionID, "channel", msg.Channel, "content", contentPreview)
+
 	// 尝试注入/入队
 	result := a.laneManager.Enqueue(msg.SessionID, msg.Content, msg.Media, nil)
 
