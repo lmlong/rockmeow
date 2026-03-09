@@ -85,6 +85,11 @@
       "enabled": true,
       "appId": "xxx",
       "appSecret": "xxx"
+    },
+    "qq": {
+      "enabled": false,
+      "appId": "xxx",
+      "appSecret": "xxx"
     }
   },
   "heartbeat": {

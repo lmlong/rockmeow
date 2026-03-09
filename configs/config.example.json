@@ -132,12 +132,48 @@
     },
 
     "qq": {
-      "_comment": "QQ机器人 - WebSocket Gateway，支持私聊消息",
+      "_comment": "QQ机器人 - WebSocket Gateway 模式（参考 OpenClaw 实现）",
       "_docs": "https://bot.q.qq.com",
+      "_features": "Intent权限降级、Session Resume断线重连、快速断开检测、群消息支持",
       "enabled": false,
-      "appId": "xxx",
-      "secret": "xxx",
+      "appId": "你的QQ机器人AppID",
+      "appSecret": "你的QQ机器人AppSecret",
       "allowFrom": []
+    }
+  },
+
+  "server": {
+    "_comment": "==================== Web UI 和 API 服务配置 ====================",
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8080,
+    "webui": {
+      "webchat": {
+        "_comment": "WebChat 网页聊天配置",
+        "enabled": true
+      },
+      "taskboard": {
+        "_comment": "任务看板配置",
+        "enabled": true,
+        "dbPath": "~/.lingguard/webui/taskboard.db",
+        "syncCron": true
+      },
+      "trace": {
+        "_comment": "追踪服务配置",
+        "enabled": true,
+        "dbPath": "~/.lingguard/webui/trace.db"
+      }
+    },
+    "api": {
+      "_comment": "API 认证配置（可选）",
+      "auth": {
+        "type": "token",
+        "tokens": ["your-api-token-here"]
+      }
+    },
+    "cors": {
+      "_comment": "跨域配置",
+      "allowedOrigins": ["*"]
     }
   },
 
